@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect } from "react";
+import { supabase } from "../lib/supabaseClient";
 import {
   LayoutDashboard, Sparkles, ScrollText, BarChart3, ScanSearch, BrainCircuit,
   ListOrdered, Settings as SettingsIcon, Menu, X, MoonStar, TrendingUp,
@@ -965,7 +966,29 @@ function SettingsView({ draws }) {
 export default function ChaokuayPreview() {
   const [view, setView] = useState("dashboard");
   const [predictions, setPredictions] = useState([]);
-  const draws = useMemo(() => [...SEED_DRAWS].sort((a, b) => a.drawDate.localeCompare(b.drawDate)), []);
+    const [draws, setDraws] = useState(() => [...SEED_DRAWS].sort((a, b) => a.drawDate.localeCompare(b.drawDate)));
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("draws")
+      .select("draw_date, first_prize, front3, back3, back2")
+      .order("draw_date", { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { console.error("Supabase fetch failed, using seed data:", error.message); return; }
+        if (data?.length && !cancelled) {
+          setDraws(data.map((d, i) => ({
+            id: `db-${i}`,
+            drawDate: d.draw_date,
+            firstPrize: d.first_prize,
+            front3: d.front3,
+            back3: d.back3,
+            back2: d.back2,
+          })));
+        }
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   function handleGenerated(candidates, targetDate) {
     const stamped = candidates.map((c) => ({ ...c, id: `${Date.now()}-${c.rank}-${Math.random().toString(36).slice(2, 7)}`, targetDrawDate: targetDate }));
