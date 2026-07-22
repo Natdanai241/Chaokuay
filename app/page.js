@@ -690,7 +690,7 @@ function GenerateView({ draws, onGenerated }) {
   async function handleGenerate() {
     setLoading(true); setRevealed(false);
     await new Promise((r) => setTimeout(r, 600));
-    const result = buildCandidates(draws, defaultWeights(), 3);
+        const result = buildCandidates(draws, deriveWeights(runBacktest(draws)), 3);
     setCandidates(result); setLoading(false);
     onGenerated(result, nextDrawDateFrom(draws));
     requestAnimationFrame(() => setRevealed(true));
