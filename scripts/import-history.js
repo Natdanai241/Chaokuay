@@ -42,7 +42,8 @@ async function main() {
     if (front3.length !== 2 || back3.length !== 2 || !/^\d{2}$/.test(back2)) { skipped++; continue; }
     draws.push({ draw_date: dateStr, first_prize: firstPrize, front3, back3, back2 });
   }
-  console.log(`Parsed ${draws.length} draws, skipped ${skipped} bad rows`);
+    console.log(`Parsed ${draws.length} draws, skipped ${skipped} bad rows`);
+  if (draws.length === 0) throw new Error("Parsed 0 draws — CSV format may have changed, check the log above.");
 
   const BATCH = 200;
   for (let i = 0; i < draws.length; i += BATCH) {
