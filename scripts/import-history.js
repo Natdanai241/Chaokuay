@@ -39,7 +39,9 @@ async function main() {
     if (!/^\d{6}$/.test(firstPrize) || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { skipped++; continue; }
     const front3 = parsePyList(front3Str), back3 = parsePyList(back3Str);
     const back2 = (back2Raw || "").trim().padStart(2, "0");
-    if (front3.length !== 2 || back3.length !== 2 || !/^\d{2}$/.test(back2)) { skipped++; continue; }
+        const front3Ok = front3.length === 0 || front3.length === 2;
+    const back3Ok = back3.length === 2 || back3.length === 4;
+    if (!front3Ok || !back3Ok || !/^\d{2}$/.test(back2)) { skipped++; continue; }
     draws.push({ draw_date: dateStr, first_prize: firstPrize, front3, back3, back2 });
   }
     console.log(`Parsed ${draws.length} draws, skipped ${skipped} bad rows`);
