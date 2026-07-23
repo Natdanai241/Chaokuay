@@ -388,7 +388,7 @@ function runBacktest(draws) {
       results.push({
         strategy: s.id, drawDate: actual.drawDate,
         hitBack2: pick.back2 === actual.back2,
-        hitBack3: pick.back3.includes(actual.back3[0]) || pick.back3.includes(actual.back3[1]),
+        hitBack3: actual.back3.some((n) => pick.back3.includes(n)),
         hitFront3: pick.front3.includes(actual.front3[0]) || pick.front3.includes(actual.front3[1]),
       });
     }
