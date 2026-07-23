@@ -380,10 +380,11 @@ const MIN_WARMUP = 5;
 function runBacktest(draws) {
   const sorted = [...draws].sort((a, b) => a.drawDate.localeCompare(b.drawDate));
   const results = [];
-  for (let i = MIN_WARMUP; i < sorted.length; i++) {
+    for (let i = MIN_WARMUP; i < sorted.length; i++) {
     const history = sorted.slice(0, i), actual = sorted[i];
+    const rng = makeRng(seedFromDraws(history));
     for (const s of STRATEGIES) {
-      const pick = runStrategy(s.id, history);
+      const pick = runStrategy(s.id, history, rng);
       results.push({
         strategy: s.id, drawDate: actual.drawDate,
         hitBack2: pick.back2 === actual.back2,
