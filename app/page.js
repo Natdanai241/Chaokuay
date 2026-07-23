@@ -180,15 +180,30 @@ function parityCorrelation(draws) {
   const denom = Math.sqrt(vx * vy);
   return denom === 0 ? 0 : cov / denom;
 }
-function monteCarloDigitLocal(weights) {
+function seedFromDraws(draws) {
+  const str = draws.map((d) => d.drawDate).sort().join("|");
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s |= 0; s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function monteCarloDigitLocal(weights, rng = Math.random) {
   const total = weights.reduce((a, b) => a + b, 0);
-  let r = Math.random() * total;
+  let r = rng() * total;
   for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) return i; }
   return weights.length - 1;
 }
-function monteCarloNumberLocal(length, posTable) {
+function monteCarloNumberLocal(length, posTable, rng = Math.random) {
   let out = "";
-  for (let p = 0; p < length; p++) out += monteCarloDigitLocal(posTable[p] || posTable[0] || new Array(10).fill(1)).toString();
+  for (let p = 0; p < length; p++) out += monteCarloDigitLocal(posTable[p] || posTable[0] || new Array(10).fill(1), rng).toString();
   return out;
 }
 
