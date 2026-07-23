@@ -279,36 +279,36 @@ function gapPick(draws, rng = Math.random) {
     first: Array.from({ length: 6 }, () => monteCarloDigitLocal(new Array(10).fill(1), rng).toString()).join(""),
   };
 }
-function monteCarloTopN(length, posTable, iterations, n) {
+function monteCarloTopN(length, posTable, iterations, n, rng = Math.random) {
   const tally = new Map();
   for (let iter = 0; iter < iterations; iter++) {
     let candidate = "";
-    for (let p = 0; p < length; p++) candidate += monteCarloDigitLocal(posTable[p] || posTable[0] || new Array(10).fill(1)).toString();
+    for (let p = 0; p < length; p++) candidate += monteCarloDigitLocal(posTable[p] || posTable[0] || new Array(10).fill(1), rng).toString();
     tally.set(candidate, (tally.get(candidate) || 0) + 1);
   }
   return [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([num]) => num);
 }
-function monteCarloPick(draws, iterations = 1000) {
+function monteCarloPick(draws, rng = Math.random, iterations = 1000) {
   const back2Pool = draws.map((d) => d.back2), back3Pool = draws.flatMap((d) => d.back3);
   const front3Pool = draws.flatMap((d) => d.front3), firstPool = draws.map((d) => d.firstPrize);
   const top2 = (pool) => {
-    const picks = monteCarloTopN(3, positionFrequency(pool), iterations, 2);
+    const picks = monteCarloTopN(3, positionFrequency(pool), iterations, 2, rng);
     return [picks[0] || "000", picks[1] || picks[0] || "999"];
   };
   return {
-    back2: monteCarloTopN(2, positionFrequency(back2Pool), iterations, 1)[0] || "00",
+    back2: monteCarloTopN(2, positionFrequency(back2Pool), iterations, 1, rng)[0] || "00",
     back3: top2(back3Pool),
     front3: top2(front3Pool),
-    first: monteCarloTopN(6, positionFrequency(firstPool), iterations, 1)[0] || "000000",
+    first: monteCarloTopN(6, positionFrequency(firstPool), iterations, 1, rng)[0] || "000000",
   };
 }
-function runStrategy(id, draws) {
-  if (id === "frequency") return frequencyPick(draws);
-  if (id === "markov") return markovPick(draws);
-  if (id === "monteCarlo") return monteCarloPick(draws);
-  if (id === "bayesian") return bayesianPick(draws);
-  if (id === "gap") return gapPick(draws);
-  return frequencyPick(draws);
+function runStrategy(id, draws, rng = Math.random) {
+  if (id === "frequency") return frequencyPick(draws, rng);
+  if (id === "markov") return markovPick(draws, rng);
+  if (id === "monteCarlo") return monteCarloPick(draws, rng);
+  if (id === "bayesian") return bayesianPick(draws, rng);
+  if (id === "gap") return gapPick(draws, rng);
+  return frequencyPick(draws, rng);
 }
 function defaultWeights() {
   return STRATEGIES.map((s) => ({ strategy: s.id, weight: 1 }));
