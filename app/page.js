@@ -315,22 +315,62 @@ function defaultWeights() {
 }
 function buildCandidates(draws, weights, count = 3) {
   const weightMap = new Map(weights.map((w) => [w.strategy, w.weight]));
+  const totalWeight = STRATEGIES.reduce((a, s) => a + (weightMap.get(s.id) ?? 1), 0) || 1;
+  const rng = makeRng(seedFromDraws(draws));
+  const picks = STRATEGIES.map((s) => ({ strategy: s.id, pick: runStrategy(s.id, draws, rng) }));
+
+  function digitVotes(field, slot, pos) {
+    const tally = new Array(10).fill(0);
+    for (const { strategy, pick } of picks) {
+      const w = weightMap.get(strategy) ?? 1;
+      const str = slot == null ? pick[field] : pick[field][slot];
+      const d = Number(str?.[pos]);
+      if (!Number.isNaN(d)) tally[d] += w;
+    }
+    return tally.map((weight, digit) => ({ digit, weight })).sort((a, b) => b.weight - a.weight);
+  }
+  function ensembleField(field, slot, length) {
+    const perPosition = Array.from({ length }, (_, pos) => digitVotes(field, slot, pos));
+    return { value: perPosition.map((v) => v[0].digit).join(""), perPosition };
+  }
+
+  const back2 = ensembleField("back2", null, 2);
+  const back3a = ensembleField("back3", 0, 3), back3b = ensembleField("back3", 1, 3);
+  const front3a = ensembleField("front3", 0, 3), front3b = ensembleField("front3", 1, 3);
+  const first = ensembleField("first", null, 6);
+
+  const slackOrder = back2.perPosition
+    .map((votes, pos) => ({ pos, slack: votes[0].weight - (votes[1]?.weight ?? 0) }))
+    .sort((a, b) => a.slack - b.slack);
+
   const candidates = [];
   for (let rank = 1; rank <= count; rank++) {
-    const roundPicks = STRATEGIES.map((s) => ({ strategy: s.id, pick: runStrategy(s.id, draws) }));
-    const chosen = roundPicks[(rank - 1) % roundPicks.length];
-    const agreeing = roundPicks.filter((p) => p.pick.back2 === chosen.pick.back2).map((p) => p.strategy);
-    const totalWeight = STRATEGIES.reduce((a, s) => a + (weightMap.get(s.id) || 1), 0) || 1;
-    const agreementScore = Math.round((agreeing.reduce((a, s) => a + (weightMap.get(s) || 1), 0) / totalWeight) * 100);
+    let back2Value = back2.value;
+    if (rank > 1 && slackOrder[rank - 2]) {
+      const { pos } = slackOrder[rank - 2];
+      const runnerUp = back2.perPosition[pos][1]?.digit ?? back2.perPosition[pos][0].digit;
+      back2Value = back2Value.slice(0, pos) + runnerUp + back2Value.slice(pos + 1);
+    }
+    const agreeing = picks.filter((p) => p.pick.back2 === back2Value).map((p) => p.strategy);
+    const agreementScore = Math.round((agreeing.reduce((a, s) => a + (weightMap.get(s) ?? 1), 0) / totalWeight) * 100);
+    const avgConsensus = Math.round(
+      (back2.perPosition.reduce((a, v) => a + v[0].weight / totalWeight, 0) / back2.perPosition.length) * 100
+    );
     candidates.push({
-      rank, firstPrize: chosen.pick.first, front3: chosen.pick.front3, back3: chosen.pick.back3, back2: chosen.pick.back2,
+      rank,
+      firstPrize: first.value,
+      front3: [front3a.value, front3b.value],
+      back3: [back3a.value, back3b.value],
+      back2: back2Value,
       agreementScore: Math.max(agreementScore, Math.round(100 / STRATEGIES.length)),
-      statisticalScore: Math.round(40 + Math.random() * 35),
-      contributingStrategies: agreeing.length ? agreeing : [chosen.strategy],
-      explanationTh: EXPLANATIONS[chosen.strategy],
+      statisticalScore: Math.max(avgConsensus, Math.round(100 / STRATEGIES.length)),
+      contributingStrategies: agreeing.length ? agreeing : STRATEGIES.map((s) => s.id),
+      explanationTh: rank === 1
+        ? "รวมน้ำหนักจากทุกแบบจำลองตามผลทดสอบย้อนหลังจริง เลือกหลักที่ได้น้ำหนักโหวตสูงสุดในแต่ละตำแหน่ง"
+        : "ตัวแปรรอง จากตำแหน่งที่แบบจำลองต่าง ๆ มีความเห็นก้ำกึ่งที่สุด",
     });
   }
-  return candidates.sort((a, b) => b.agreementScore - a.agreementScore).map((c, i) => ({ ...c, rank: i + 1 }));
+  return candidates;
 }
 
 /* ---------------------------------------------------------------------- */
