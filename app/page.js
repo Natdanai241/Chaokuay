@@ -225,50 +225,50 @@ const EXPLANATIONS = {
   gap: "เลือกเลขที่ไม่ปรากฏมานานที่สุด ตามแนวคิดเรื่อง 'เลขค้างคิว'",
 };
 
-function frequencyPick(draws) {
+function frequencyPick(draws, rng = Math.random) {
   const back2Pool = draws.map((d) => d.back2), back3Pool = draws.flatMap((d) => d.back3);
   const front3Pool = draws.flatMap((d) => d.front3), firstPool = draws.map((d) => d.firstPrize);
-  const pick3 = (pool) => monteCarloNumberLocal(3, positionFrequency(pool));
+  const pick3 = (pool) => monteCarloNumberLocal(3, positionFrequency(pool), rng);
   return {
-    back2: monteCarloNumberLocal(2, positionFrequency(back2Pool)),
+    back2: monteCarloNumberLocal(2, positionFrequency(back2Pool), rng),
     back3: [pick3(back3Pool), pick3(back3Pool)],
     front3: [pick3(front3Pool), pick3(front3Pool)],
     first: Array.from({ length: 6 }, (_, i) => {
       const posterior = bayesianDigitPosterior([firstPool.map((n) => n[i]).join("")]);
-      return monteCarloDigitLocal(posterior).toString();
+      return monteCarloDigitLocal(posterior, rng).toString();
     }).join(""),
   };
 }
-function markovPick(draws) {
+function markovPick(draws, rng = Math.random) {
   const back2Matrix = digitTransitionMatrix(draws, "back2");
   const sorted = [...draws].sort((a, b) => a.drawDate.localeCompare(b.drawDate));
   const last = sorted[sorted.length - 1];
   const nextRow = back2Matrix[last ? Number(last.back2[0]) : 0];
-  const back2 = `${monteCarloDigitLocal(nextRow)}${monteCarloDigitLocal(nextRow)}`;
+  const back2 = `${monteCarloDigitLocal(nextRow, rng)}${monteCarloDigitLocal(nextRow, rng)}`;
   const front3Matrix = digitTransitionMatrix(draws, "front3a"), back3Matrix = digitTransitionMatrix(draws, "back3a");
   const mkTriple = (matrix) => {
-    let cur = monteCarloDigitLocal(new Array(10).fill(1)), seq = cur.toString();
-    for (let i = 0; i < 2; i++) { cur = monteCarloDigitLocal(matrix[cur]); seq += cur.toString(); }
+    let cur = monteCarloDigitLocal(new Array(10).fill(1), rng), seq = cur.toString();
+    for (let i = 0; i < 2; i++) { cur = monteCarloDigitLocal(matrix[cur], rng); seq += cur.toString(); }
     return seq;
   };
   return {
     back2, back3: [mkTriple(back3Matrix), mkTriple(back3Matrix)], front3: [mkTriple(front3Matrix), mkTriple(front3Matrix)],
-    first: Array.from({ length: 6 }, () => monteCarloDigitLocal(new Array(10).fill(1)).toString()).join(""),
+    first: Array.from({ length: 6 }, () => monteCarloDigitLocal(new Array(10).fill(1), rng).toString()).join(""),
   };
 }
-function bayesianPick(draws) {
+function bayesianPick(draws, rng = Math.random) {
   const posterior = bayesianDigitPosterior(draws.map((d) => d.back2), 2);
   const back3P = bayesianDigitPosterior(draws.flatMap((d) => d.back3), 2);
   const front3P = bayesianDigitPosterior(draws.flatMap((d) => d.front3), 2);
   const firstP = bayesianDigitPosterior(draws.map((d) => d.firstPrize), 2);
-  const mkTriple = (p) => `${monteCarloDigitLocal(p)}${monteCarloDigitLocal(p)}${monteCarloDigitLocal(p)}`;
+  const mkTriple = (p) => `${monteCarloDigitLocal(p, rng)}${monteCarloDigitLocal(p, rng)}${monteCarloDigitLocal(p, rng)}`;
   return {
-    back2: `${monteCarloDigitLocal(posterior)}${monteCarloDigitLocal(posterior)}`,
+    back2: `${monteCarloDigitLocal(posterior, rng)}${monteCarloDigitLocal(posterior, rng)}`,
     back3: [mkTriple(back3P), mkTriple(back3P)], front3: [mkTriple(front3P), mkTriple(front3P)],
-    first: Array.from({ length: 6 }, () => monteCarloDigitLocal(firstP).toString()).join(""),
+    first: Array.from({ length: 6 }, () => monteCarloDigitLocal(firstP, rng).toString()).join(""),
   };
 }
-function gapPick(draws) {
+function gapPick(draws, rng = Math.random) {
   const o2 = [...hotColdNumbers(draws, "back2")].sort((a, b) => b.gap - a.gap);
   const o3 = [...hotColdNumbers(draws, "back3")].sort((a, b) => b.gap - a.gap);
   const oF3 = [...hotColdNumbers(draws, "front3")].sort((a, b) => b.gap - a.gap);
@@ -276,7 +276,7 @@ function gapPick(draws) {
     back2: o2[0]?.number || "00",
     back3: [o3[0]?.number || "000", o3[1]?.number || "999"],
     front3: [oF3[0]?.number || "000", oF3[1]?.number || "999"],
-    first: Array.from({ length: 6 }, () => monteCarloDigitLocal(new Array(10).fill(1)).toString()).join(""),
+    first: Array.from({ length: 6 }, () => monteCarloDigitLocal(new Array(10).fill(1), rng).toString()).join(""),
   };
 }
 function monteCarloTopN(length, posTable, iterations, n) {
