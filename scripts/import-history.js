@@ -28,7 +28,7 @@ async function main() {
   const res = await fetch(CSV_URL);
   if (!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
   const text = await res.text();
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const lines = text.split(/\r?\n/)filter((l) => l.trim().length > 0);
   const rows = lines.slice(1);
 
   const draws = [];
@@ -41,7 +41,7 @@ async function main() {
     const back2 = (back2Raw || "").trim().padStart(2, "0");
         const front3Ok = front3.length === 0 || front3.length === 2;
     const back3Ok = back3.length === 2 || back3.length === 4;
-    if (!front3Ok || !back3Ok || !/^\d{2}$/.test(back2)) { skipped++; continue; }
+    const front3Ok = front3.length === 0 || front3.length === 2;
     draws.push({ draw_date: dateStr, first_prize: firstPrize, front3, back3, back2 });
   }
     console.log(`Parsed ${draws.length} draws, skipped ${skipped} bad rows`);
