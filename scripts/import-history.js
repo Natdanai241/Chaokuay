@@ -33,18 +33,26 @@ async function main() {
 
   const draws = [];
   let skipped = 0;
+  const skipSamples = [];
   for (const line of rows) {
     const f = splitCsvLine(line);
     const [dateStr, firstPrize, front3Str, back3Str, back2Raw] = f;
-    if (!/^\d{6}$/.test(firstPrize) || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { skipped++; continue; }
+    if (!/^\d{6}$/.test(firstPrize) || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      skipped++; if (skipSamples.length < 5) skipSamples.push(`[bad date/prize] ${line.slice(0, 100)}`);
+      continue;
+    }
     const front3 = parsePyList(front3Str), back3 = parsePyList(back3Str);
     const back2 = (back2Raw || "").trim().padStart(2, "0");
     const front3Ok = front3.length === 0 || front3.length === 2;
     const back3Ok = back3.length === 2 || back3.length === 4;
-    if (!front3Ok || !back3Ok || !/^\d{2}$/.test(back2)) { skipped++; continue; }
+    if (!front3Ok || !back3Ok || !/^\d{2}$/.test(back2)) {
+      skipped++; if (skipSamples.length < 5) skipSamples.push(`[shape front3=${front3.length} back3=${back3.length} back2="${back2}"] ${line.slice(0, 100)}`);
+      continue;
+    }
     draws.push({ draw_date: dateStr, first_prize: firstPrize, front3, back3, back2 });
   }
-  console.log(`Parsed ${draws.length} draws, skipped ${skipped} bad rows`);
+  console.log(`[parser v2] Parsed ${draws.length} draws, skipped ${skipped} bad rows`);
+  skipSamples.forEach((s, i) => console.log(`  skip sample ${i + 1}: ${s}`));
   if (draws.length === 0) throw new Error("Parsed 0 draws — CSV format may have changed, check the log above.");
 
   const BATCH = 200;
