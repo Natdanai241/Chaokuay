@@ -917,6 +917,36 @@ function PatternsView({ draws }) {
 
 function ModelsView({ draws }) {
   const backtest = runBacktest(draws), summary = summarizeBacktest(backtest), weights = deriveWeights(backtest);
+  const probRows = runProbabilisticBacktest(draws), probSummary = summarizeProbabilisticBacktest(probRows);
+
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("performance_history")
+      .select("strategy, computed_at, back2_hit_rate, brier_score, random_baseline_brier")
+      .order("computed_at", { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) setHistory(data);
+        setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const chartData = useMemo(() => {
+    const byTime = new Map();
+    for (const row of history) {
+      const key = row.computed_at;
+      if (!byTime.has(key)) byTime.set(key, { computed_at: key });
+      byTime.get(key)[row.strategy] = row.back2_hit_rate * 100;
+    }
+    return [...byTime.values()].sort((a, b) => a.computed_at.localeCompare(b.computed_at));
+  }, [history]);
+
+  const strategyColors = { frequency: COLORS.gold, markov: COLORS.goldBright, monteCarlo: "#8FB8DE", bayesian: "#C48FDE", gap: "#DE8F8F" };
+
   return (
     <div className="mx-auto flex flex-col" style={{ maxWidth: 950, gap: 20 }}>
       <div>
@@ -927,6 +957,8 @@ function ModelsView({ draws }) {
       <div className="grid md:grid-cols-2" style={{ gap: 16 }}>
         {STRATEGIES.map((s) => {
           const row = summary.find((r) => r.strategy === s.id), w = weights.find((x) => x.strategy === s.id);
+          const prob = probSummary.find((x) => x.strategy === s.id);
+          const noEdge = prob ? isIndistinguishableFromChance(prob, prob.runs) : true;
           return (
             <Card key={s.id}>
               <CardHeader>
@@ -942,16 +974,57 @@ function ModelsView({ draws }) {
                   <div><p className="ck-numeral" style={{ fontSize: "1.1rem", color: "var(--cold-bright)" }}>{row ? (row.back3HitRate * 100).toFixed(1) : "0.0"}%</p><p style={{ fontSize: "0.65rem", color: "var(--mist)" }}>ตรงท้าย 3 ตัว</p></div>
                   <div><p className="ck-numeral" style={{ fontSize: "1.1rem", color: "var(--parchment)" }}>{row ? (row.front3HitRate * 100).toFixed(1) : "0.0"}%</p><p style={{ fontSize: "0.65rem", color: "var(--mist)" }}>ตรงหน้า 3 ตัว</p></div>
                 </div>
+                {prob && (
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(201,162,75,0.15)" }}>
+                    <div className="flex items-center justify-between" style={{ fontSize: "0.75rem", color: "var(--mist)" }}>
+                      <span>Brier score: {prob.brierScore.toFixed(4)} (โอกาสสุ่ม {prob.randomBaseline.brierScore.toFixed(4)})</span>
+                      <Badge tone="gold">{noEdge ? "อยู่ในช่วงผันผวนของการสุ่ม" : "ต่างจากเส้นฐานเล็กน้อย"}</Badge>
+                    </div>
+                    <p style={{ marginTop: 4, fontSize: "0.68rem", color: "var(--mist)" }}>Top-10: {(prob.top10Accuracy * 100).toFixed(1)}% · อันดับเฉลี่ยของผลจริง: {prob.meanRank.toFixed(0)}/100</p>
+                  </div>
+                )}
                 <p style={{ marginTop: 10, fontSize: "0.68rem", color: "var(--mist)" }}>ทดสอบทั้งหมด {row?.runs ?? 0} รอบ</p>
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center" style={{ gap: 8 }}><TrendingUp size={16} color={COLORS.gold} /> แนวโน้มความแม่นยำตามเวลา</CardTitle>
+          <CardDescription>ผลการรันแบบจำลองแต่ละครั้งที่บันทึกไว้ (performance_history) — เส้นประคือระดับโอกาสสุ่ม ≈1%</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historyLoading ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>กำลังโหลด...</p>
+          ) : chartData.length === 0 ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>ยังไม่มีประวัติ — รัน "Run model backtest" ใน GitHub Actions อย่างน้อยหนึ่งครั้งเพื่อเริ่มเก็บข้อมูล</p>
+          ) : (
+            <div style={{ width: "100%", height: 260 }}>
+              <ResponsiveContainer>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(201,162,75,0.1)" />
+                  <XAxis dataKey="computed_at" tick={{ fontSize: 10, fill: "var(--mist)" }} tickFormatter={(v) => new Date(v).toLocaleDateString("th-TH", { month: "short", day: "numeric" })} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--mist)" }} unit="%" />
+                  <Tooltip contentStyle={{ background: COLORS.surface, border: "1px solid rgba(201,162,75,0.3)", fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <ReferenceLine y={1} stroke="var(--mist)" strokeDasharray="4 4" />
+                  {STRATEGIES.map((s) => (
+                    <Line key={s.id} type="monotone" dataKey={s.id} name={s.nameTh} stroke={strategyColors[s.id] || COLORS.gold} strokeWidth={2} dot={false} connectNulls />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card><CardHeader><CardTitle>วิธีอ่านตัวเลขเหล่านี้</CardTitle></CardHeader>
         <CardContent className="flex flex-col" style={{ gap: 8, fontSize: "0.875rem", color: "var(--mist)" }}>
           <p>ผลสลากแต่ละงวดเป็นเหตุการณ์สุ่มอิสระจากงวดก่อนหน้า อัตราตรงที่คาดหวังในระยะยาวคือระดับโอกาสสุ่มล้วน (≈1% สำหรับเลขท้าย 2 ตัว สูงขึ้นเล็กน้อยสำหรับเลขท้าย/หน้า 3 ตัว เพราะมี 2 เลขต่องวด)</p>
           <p>ตัวเลขที่สูงหรือต่ำกว่านี้ในบางช่วง เป็นความผันผวนตามธรรมชาติของกลุ่มตัวอย่างขนาดเล็ก ({draws.length} งวด) ไม่ใช่หลักฐานว่าแบบจำลองใดทำนายผลสุ่มได้จริง</p>
+          <p>Brier score และ log loss คือคะแนนความแม่นยำของ "ความน่าจะเป็น" ที่แบบจำลองให้กับผลจริง ยิ่งใกล้เคียงกับเส้นฐานโอกาสสุ่มเท่าไร ยิ่งแปลว่าแบบจำลองไม่มีความได้เปรียบจริง ซึ่งเป็นผลที่คาดไว้อยู่แล้วสำหรับการสุ่มอิสระ</p>
         </CardContent>
       </Card>
     </div>
