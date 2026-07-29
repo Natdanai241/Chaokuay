@@ -299,12 +299,96 @@ function monteCarloPick(draws, rng = Math.random, iterations = 1000) {
     first: monteCarloTopN(6, positionFrequency(firstPool), iterations, 1, rng)[0] || "000000",
   };
 }
-function runStrategy(id, draws, rng = Math.random) {
+export function buildConditionalTable(numbers, order) {
+  // counts[position]['key'][digit] -> count, where key = the `order` preceding digits joined.
+  // order=1 -> pair correlation (condition on 1 previous digit)
+  // order=2 -> triplet correlation (condition on 2 previous digits)
+  const tables = [];
+  for (const n of numbers) {
+    for (let p = order; p < n.length; p++) {
+      const key = n.slice(p - order, p);
+      const digit = Number(n[p]);
+      tables[p] = tables[p] || new Map();
+      const inner = tables[p].get(key) || new Array(10).fill(0);
+      inner[digit]++;
+      tables[p].set(key, inner);
+    }
+  }
+  return tables;
+}
+export function entropyWeights(numbers) {
+  const table = positionFrequency(numbers);
+  return table.map((row) => {
+    const total = row.reduce((a, b) => a + b, 0) || 1;
+    const inv = row.map((c) => 1 / (c / total + 0.05));
+    const invTotal = inv.reduce((a, b) => a + b, 0);
+    return inv.map((v) => (v / invTotal) * total);
+  });
+}
+function pickWithConditional(length, marginalTable, conditionalTables, order, rng) {
+  const digits = [];
+  for (let p = 0; p < length; p++) {
+    if (p < order || !conditionalTables[p]) {
+      digits.push(monteCarloDigitLocal(marginalTable[p] || marginalTable[0] || new Array(10).fill(1), rng));
+      continue;
+    }
+    const key = digits.slice(p - order, p).join("");
+    const row = conditionalTables[p].get(key);
+    digits.push(monteCarloDigitLocal(row && row.some((x) => x > 0) ? row : marginalTable[p] || new Array(10).fill(1), rng));
+  }
+  return digits.join("");
+}
+export function entropyPick(draws, rng = Math.random) {
+  const back2Pool = draws.map((d) => d.back2), back3Pool = draws.flatMap((d) => d.back3);
+  const front3Pool = draws.flatMap((d) => d.front3), firstPool = draws.map((d) => d.firstPrize);
+  const pick = (pool, length) => monteCarloNumberLocal(length, entropyWeights(pool), rng);
+  return {
+    back2: pick(back2Pool, 2), back3: [pick(back3Pool, 3), pick(back3Pool, 3)],
+    front3: [pick(front3Pool, 3), pick(front3Pool, 3)], first: pick(firstPool, 6),
+  };
+}
+export function pairCorrelationPick(draws, rng = Math.random) {
+  const back2Pool = draws.map((d) => d.back2), back3Pool = draws.flatMap((d) => d.back3);
+  const front3Pool = draws.flatMap((d) => d.front3), firstPool = draws.map((d) => d.firstPrize);
+  const pick = (pool, length) => pickWithConditional(length, positionFrequency(pool), buildConditionalTable(pool, 1), 1, rng);
+  return {
+    back2: pick(back2Pool, 2), back3: [pick(back3Pool, 3), pick(back3Pool, 3)],
+    front3: [pick(front3Pool, 3), pick(front3Pool, 3)], first: pick(firstPool, 6),
+  };
+}
+export function tripletCorrelationPick(draws, rng = Math.random) {
+  const back3Pool = draws.flatMap((d) => d.back3), front3Pool = draws.flatMap((d) => d.front3), firstPool = draws.map((d) => d.firstPrize);
+  const pick3plus = (pool, length) => pickWithConditional(length, positionFrequency(pool), buildConditionalTable(pool, 2), 2, rng);
+  const sorted = [...draws].sort((a, b) => a.drawDate.localeCompare(b.drawDate));
+  const triples = new Map();
+  for (let i = 1; i < sorted.length; i++) {
+    const key = sorted[i - 1].back2[1] + sorted[i].back2[0];
+    const row = triples.get(key) || new Array(10).fill(0);
+    row[Number(sorted[i].back2[1])]++;
+    triples.set(key, row);
+  }
+  const marginal = positionFrequency(sorted.map((d) => d.back2));
+  const digit0 = monteCarloDigitLocal(marginal[0] || new Array(10).fill(1), rng);
+  const lastBack2 = sorted[sorted.length - 1]?.back2 || "00";
+  const key = lastBack2[1] + digit0.toString();
+  const row = triples.get(key);
+  const digit1 = monteCarloDigitLocal(row && row.some((x) => x > 0) ? row : marginal[1] || new Array(10).fill(1), rng);
+  return {
+    back2: `${digit0}${digit1}`,
+    back3: [pick3plus(back3Pool, 3), pick3plus(back3Pool, 3)],
+    front3: [pick3plus(front3Pool, 3), pick3plus(front3Pool, 3)],
+    first: pick3plus(firstPool, 6),
+  };
+}
+export function runStrategy(id, draws, rng = Math.random) {
   if (id === "frequency") return frequencyPick(draws, rng);
   if (id === "markov") return markovPick(draws, rng);
   if (id === "monteCarlo") return monteCarloPick(draws, rng);
   if (id === "bayesian") return bayesianPick(draws, rng);
   if (id === "gap") return gapPick(draws, rng);
+  if (id === "entropy") return entropyPick(draws, rng);
+  if (id === "pairCorrelation") return pairCorrelationPick(draws, rng);
+  if (id === "tripletCorrelation") return tripletCorrelationPick(draws, rng);
   return frequencyPick(draws, rng);
 }
 function defaultWeights() {
