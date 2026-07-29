@@ -718,7 +718,11 @@ function GenerateView({ draws, onGenerated }) {
     await new Promise((r) => setTimeout(r, 600));
     const result = buildCandidates(draws, deriveWeights(runBacktest(draws)), 3);
     setCandidates(result); setLoading(false);
-    onGenerated(result, nextDrawDateFrom(draws));
+        onGenerated(result, nextDrawDateFrom(draws));
+    fetch("/api/predictions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetDrawDate: nextDrawDateFrom(draws), candidates: result }),
+    }).catch(() => {});
     requestAnimationFrame(() => setRevealed(true));
   }
   const top = candidates?.[0];
