@@ -391,6 +391,50 @@ export function runStrategy(id, draws, rng = Math.random) {
   if (id === "tripletCorrelation") return tripletCorrelationPick(draws, rng);
   return frequencyPick(draws, rng);
 }
+export function back2FullDistribution([p0, p1]) {
+  const dist = new Array(100);
+  for (let a = 0; a < 10; a++) for (let b = 0; b < 10; b++) dist[a * 10 + b] = p0[a] * p1[b];
+  return dist;
+}
+function back2ToIndex(back2) { return Number(back2[0]) * 10 + Number(back2[1]); }
+function laplaceRow(row, alpha = 0.5) {
+  if (!row) return new Array(10).fill(0.1);
+  const total = row.reduce((a, b) => a + b, 0);
+  return row.map((c) => (c + alpha) / (total + alpha * 10));
+}
+export function strategyBack2FullDistribution(id, draws) {
+  const back2Pool = draws.map((d) => d.back2);
+  if (id === "pairCorrelation") {
+    const marginal0 = laplaceRow(positionFrequency(back2Pool)[0]);
+    const cond = buildConditionalTable(back2Pool, 1)[1];
+    const dist = new Array(100).fill(0);
+    for (let d0 = 0; d0 < 10; d0++) {
+      const p1given0 = laplaceRow(cond?.get(String(d0)));
+      for (let d1 = 0; d1 < 10; d1++) dist[d0 * 10 + d1] = marginal0[d0] * p1given0[d1];
+    }
+    return dist;
+  }
+  if (id === "tripletCorrelation") {
+    const sorted = [...draws].sort((a, b) => a.drawDate.localeCompare(b.drawDate));
+    const marginal0 = laplaceRow(positionFrequency(sorted.map((d) => d.back2))[0]);
+    const triples = new Map();
+    for (let i = 1; i < sorted.length; i++) {
+      const key = sorted[i - 1].back2[1] + sorted[i].back2[0];
+      const row = triples.get(key) || new Array(10).fill(0);
+      row[Number(sorted[i].back2[1])]++;
+      triples.set(key, row);
+    }
+    const lastBack2 = sorted[sorted.length - 1]?.back2 || "00";
+    const dist = new Array(100).fill(0);
+    for (let d0 = 0; d0 < 10; d0++) {
+      const p1 = laplaceRow(triples.get(lastBack2[1] + d0.toString()));
+      for (let d1 = 0; d1 < 10; d1++) dist[d0 * 10 + d1] = marginal0[d0] * p1[d1];
+    }
+    return dist;
+  }
+  if (id === "entropy") return back2FullDistribution(entropyWeights(back2Pool).map(laplaceRow));
+  return back2FullDistribution(strategyBack2DigitProbs(id, draws));
+}
 function defaultWeights() {
   return STRATEGIES.map((s) => ({ strategy: s.id, weight: 1 }));
 }
