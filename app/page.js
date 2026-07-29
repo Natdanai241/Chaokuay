@@ -11,6 +11,17 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 
+import {
+  EXPLANATIONS, MIN_WARMUP, STRATEGIES, allDigits, back2FullDistribution, bayesianDigitPosterior,
+  bayesianPick, buildCandidates, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
+  findMirrorPairs, frequencyPick, gapPick, hasConsecutiveDigits, highLowDistribution, hotColdNumbers,
+  isIndistinguishableFromChance, makeRng, markovPick, monteCarloDigitLocal, monteCarloNumberLocal,
+  monteCarloPick, monteCarloTopN, nextDrawDateFrom, oddEvenRatio, pairFrequency, parityCorrelation,
+  positionFrequency, repeatedDigitNumbers, runBacktest, runProbabilisticBacktest, runStrategy,
+  seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest, summarizeProbabilisticBacktest,
+  tripleFrequency,
+} from "../lib/models.js";
+
 const COLORS = {
   ink: "#0D0B14", surface: "#17131F", gold: "#C9A24B", goldBright: "#E8C876",
   cold: "#5C7A99", coldBright: "#7FA0C2", mist: "#8B839C", parchment: "#EDE6D6",
@@ -45,14 +56,6 @@ function formatThaiDate(isoDate) {
   const months = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
   const d = new Date(isoDate + "T00:00:00Z");
   return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear() + 543}`;
-}
-function nextDrawDateFrom(draws) {
-  const latest = draws[draws.length - 1];
-  if (!latest) return new Date().toISOString().slice(0, 10);
-  const d = new Date(latest.drawDate + "T00:00:00Z");
-  if (d.getUTCDate() === 1) d.setUTCDate(16);
-  else d.setUTCMonth(d.getUTCMonth() + 1, 1);
-  return d.toISOString().slice(0, 10);
 }
 
 function allDigits(numbers) { return numbers.flatMap((n) => n.split("")); }
