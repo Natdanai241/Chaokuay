@@ -17,3 +17,7 @@ jobs:
         env:
           SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+       - run: node scripts/run-backtest.js
+        env:
+          SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
