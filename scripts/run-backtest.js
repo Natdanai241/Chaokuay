@@ -80,7 +80,7 @@ async function main() {
     contributing_strategies: c.contributingStrategies, explanation_th: c.explanationTh,
     generated_at: computedAt, source: "auto-pipeline",
   }));
-  await upsert("predictions", candidates, "target_draw_date,rank", "merge-duplicates");
+  await upsert("predictions", candidates, "target_draw_date,rank,source", "merge-duplicates");
   console.log(`[run-backtest] Stored ${candidates.length} predictions for ${targetDrawDate}`);
   console.log("[run-backtest] Done.");
 }
