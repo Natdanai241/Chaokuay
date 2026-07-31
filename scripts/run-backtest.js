@@ -69,7 +69,7 @@ async function main() {
   }
 
   await upsert("model_performance", merged, "strategy", "merge-duplicates");
-  await upsert("performance_history", merged.map((r) => ({ ...r, sample_size_at_run: draws.length })), "strategy,computed_at", "ignore-duplicates");
+  await upsert("performance_history", merged.map(({ sample_size, ...r }) => ({ ...r, sample_size_at_run: draws.length })), "strategy,computed_at", "ignore-duplicates");
   console.log(`[run-backtest] Stored ${merged.length} model_performance rows + performance_history entries`);
 
   const targetDrawDate = nextDrawDateFrom(draws);
