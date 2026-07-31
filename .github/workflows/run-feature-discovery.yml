@@ -1,0 +1,17 @@
+name: Run feature discovery
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/run-feature-discovery.js
+        env:
+          SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
