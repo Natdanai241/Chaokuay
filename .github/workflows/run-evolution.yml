@@ -1,0 +1,17 @@
+name: Run evolution engine
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  evolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/run-evolution.js
+        env:
+          SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
