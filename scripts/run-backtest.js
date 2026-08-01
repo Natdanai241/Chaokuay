@@ -37,6 +37,14 @@ async function upsert(table, rows, onConflict, resolution = "merge-duplicates") 
   });
   if (!r.ok) throw new Error(`Upsert ${table} failed: ${r.status} ${await r.text()}`);
 }
+async function fetchPredictionsForDate(targetDate) {
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/predictions?target_draw_date=eq.${targetDate}&select=target_draw_date,rank,source,front3,back3,back2,contributing_strategies,agreement_score`,
+    { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
+  );
+  if (!r.ok) throw new Error(`Fetch predictions failed: ${r.status} ${await r.text()}`);
+  return r.json();
+}
 
 async function main() {
   const draws = await fetchAllDraws();
