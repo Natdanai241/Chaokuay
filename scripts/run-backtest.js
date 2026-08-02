@@ -117,3 +117,10 @@ async function main() {
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
+
+import {
+  runBacktest, summarizeBacktest, deriveWeights,
+  runProbabilisticBacktest, summarizeProbabilisticBacktest,
+  isIndistinguishableFromChance, buildCandidates, nextDrawDateFrom,
+  rollingCalibrationCheck,
+} from "../lib/models.js";
