@@ -103,6 +103,34 @@ async function main() {
   await upsert("performance_history", merged.map(({ sample_size, ...r }) => ({ ...r, sample_size_at_run: draws.length })), "strategy,computed_at", "ignore-duplicates");
   console.log(`[run-backtest] Stored ${merged.length} model_performance rows + performance_history entries`);
 
+  
+  // Rolling calibration check: has any strategy's recent Brier score drifted from its own
+  // all-time Brier score by more than a multiple-comparisons-corrected noise threshold?
+  // This is diagnostic, not a "why did it miss" story -- see the comment on
+  // rollingCalibrationCheck for why drift here is usually a small-sample estimation effect
+  // (e.g. markov's transition matrix, digitMomentum's recency split) rather than a real change.
+  const calibration = rollingCalibrationCheck(draws, 50);
+  if (calibration) {
+    const rows = calibration.results.map((r) => ({
+      strategy: r.strategy, computed_at: computedAt, window_size: calibration.windowSize,
+      recent_brier: r.recentBrier, recent_sample_size: r.recentSampleSize,
+      overall_brier: r.overallBrier, overall_sample_size: r.overallSampleSize,
+      random_baseline_brier: r.randomBaselineBrier,
+      drift: r.drift, drift_significant: r.driftSignificant,
+    }));
+    await upsert("calibration_checks", rows, "strategy,computed_at", "ignore-duplicates");
+    const flagged = calibration.results.filter((r) => r.driftSignificant);
+    console.log(
+      `[run-backtest] Calibration check (window=${calibration.windowSize}): ` +
+      (flagged.length === 0
+        ? "no strategy's recent performance drifted beyond the noise threshold"
+        : `${flagged.map((r) => r.strategy).join(", ")} flagged -- for history-dependent methods this is` +
+          " usually early-data estimation noise settling as the dataset grows, not a new pattern")
+    );
+  } else {
+    console.log("[run-backtest] Not enough draws yet for a rolling calibration check.");
+  }
+
   const targetDrawDate = nextDrawDateFrom(draws);
   const candidates = buildCandidates(draws, weights, 3).map((c) => ({
     target_draw_date: targetDrawDate, rank: c.rank, first_prize: c.firstPrize,
