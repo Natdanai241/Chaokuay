@@ -2,6 +2,8 @@ name: Run evolution engine
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "30 14 1 * *"
 
 jobs:
   evolve:
