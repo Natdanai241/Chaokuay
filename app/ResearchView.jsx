@@ -3,6 +3,33 @@ function ResearchView() {
   const [featureDiscovery, setFeatureDiscovery] = useState(null);
   const [evolution, setEvolution] = useState(null);
   const [mlModels, setMlModels] = useState(null);
+  const [weightHistory, setWeightHistory] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const [fd, evo, ml, wh] = await Promise.all([
+        supabase.from("feature_discovery_runs").select("*").order("run_at", { ascending: false }).limit(1),
+        supabase.from("evolution_runs").select("*").order("run_at", { ascending: false }).limit(1),
+        supabase.from("ml_model_runs").select("*").order("run_at", { ascending: false }).limit(1),
+        supabase.from("weight_version_history").select("*").order("created_at", { ascending: false }).limit(10),
+      ]);
+      if (cancelled) return;
+      setFeatureDiscovery(fd.data?.[0] || null);
+      setEvolution(evo.data?.[0] || null);
+      setMlModels(ml.data?.[0] || null);
+      setWeightHistory(wh.data || []);
+      setLoading(false);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+function ResearchView() {
+  const [loading, setLoading] = useState(true);
+  const [featureDiscovery, setFeatureDiscovery] = useState(null);
+  const [evolution, setEvolution] = useState(null);
+  const [mlModels, setMlModels] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
