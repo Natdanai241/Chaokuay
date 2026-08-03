@@ -181,6 +181,54 @@ function ResearchView() {
             </div>
           )}
         </CardContent>
+      </Card>      {/* Weight Version History */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center" style={{ gap: 8 }}><TrendingUp size={16} color={COLORS.gold} /> ประวัติน้ำหนักของแบบจำลอง</CardTitle>
+          <CardDescription>ทุกครั้งที่ evolution engine รัน จะเทียบน้ำหนักใหม่กับค่าที่ใช้งานอยู่บนข้อมูล held-out — เปลี่ยนเฉพาะเมื่อดีขึ้นจริงเท่านั้น</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {weightHistory.length === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: "var(--mist)" }}>ยังไม่มีประวัติ — สั่งรัน "Run evolution engine" ใน GitHub Actions</p>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 16 }}>
+              {(() => {
+                const active = weightHistory.find((r) => r.adopted);
+                if (!active) return null;
+                const topWeights = [...active.weights].sort((a, b) => b.weight - a.weight).slice(0, 5);
+                return (
+                  <div style={{ borderRadius: 10, padding: 12, background: "rgba(201,162,75,0.06)", border: "1px solid rgba(201,162,75,0.2)" }}>
+                    <p style={{ fontSize: "0.72rem", color: "var(--mist)" }}>ค่าที่ใช้งานอยู่ปัจจุบัน (นำมาใช้เมื่อ {fmtDate(active.created_at)})</p>
+                    <div className="flex flex-wrap" style={{ gap: 6, marginTop: 8 }}>
+                      {topWeights.map((w) => (
+                        <Badge key={w.strategy} tone="gold">
+                          {STRATEGIES.find((s) => s.id === w.strategy)?.nameTh ?? w.strategy} · {w.weight.toFixed(2)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="flex flex-col" style={{ gap: 8 }}>
+                {weightHistory.map((row) => (
+                  <div key={row.id} className="flex items-start justify-between" style={{ padding: "8px 0", borderTop: "1px solid rgba(201,162,75,0.1)", gap: 12 }}>
+                    <div>
+                      <p style={{ fontSize: "0.78rem", color: "var(--parchment)" }}>{fmtDate(row.created_at)}</p>
+                      <p style={{ fontSize: "0.72rem", color: "var(--mist)", marginTop: 2 }}>
+                        {row.adopted
+                          ? row.held_out_brier_previous == null
+                            ? "ยังไม่มีค่าเริ่มต้นมาก่อน — นำมาใช้เป็นค่าเริ่มต้น"
+                            : `ดีขึ้นบนข้อมูล held-out จาก ${row.held_out_brier_previous.toFixed(4)} เป็น ${row.held_out_brier_new.toFixed(4)}`
+                          : `ไม่ต่างจากค่าปัจจุบันอย่างมีนัยสำคัญ (${row.held_out_brier_new?.toFixed(4)} เทียบ ${row.held_out_brier_previous?.toFixed(4)}) — คงค่าเดิมไว้`}
+                      </p>
+                    </div>
+                    <Badge tone={row.adopted ? "gold" : "mist"}>{row.adopted ? "นำมาใช้" : "ไม่เปลี่ยนแปลง"}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
       </Card>
     </div>
   );
