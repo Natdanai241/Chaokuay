@@ -132,6 +132,25 @@ async function main() {
     console.log("[run-backtest] Not enough draws yet for a rolling calibration check.");
   }
 
+  // Same Brier/log-loss/top-K rigor as back2, generalized to back3/front3 -- these have 1000
+  // outcomes (not 100) and TWO winning numbers per draw (not one), so each draw contributes two
+  // scoring instances per field rather than being invented as a single "co-winner" concept.
+  for (const field of ["back3", "front3"]) {
+    const fieldRows = runProbabilisticBacktestForField(draws, field);
+    const fieldSummary = summarizeProbabilisticBacktestForField(fieldRows, field);
+    const fieldStorageRows = fieldSummary.map((s) => ({
+      strategy: s.strategy, field, computed_at: computedAt, sample_size: s.runs,
+      brier_score: s.brierScore, log_loss: s.logLoss, mean_rank: s.meanRank,
+      top1_accuracy: s.top1Accuracy, top5_accuracy: s.top5Accuracy, top10_accuracy: s.top10Accuracy, top20_accuracy: s.top20Accuracy,
+      random_baseline_brier: s.randomBaseline.brierScore, random_baseline_log_loss: s.randomBaseline.logLoss,
+    }));
+    await upsert("field_model_performance", fieldStorageRows, "strategy,field,computed_at", "ignore-duplicates");
+    console.log(
+      `[run-backtest] ${field}: stored ${fieldStorageRows.length} strategy rows ` +
+      `(sample size ${fieldSummary[0]?.runs ?? 0} -- 0 means no ${field} data exists yet in this era of history)`
+    );
+  }
+
   const targetDrawDate = nextDrawDateFrom(draws);
   const candidates = buildCandidates(draws, weights, 3).map((c) => ({
     target_draw_date: targetDrawDate, rank: c.rank, first_prize: c.firstPrize,
