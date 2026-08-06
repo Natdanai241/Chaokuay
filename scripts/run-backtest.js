@@ -5,6 +5,7 @@ import {
   runBacktest, summarizeBacktest, deriveWeights,
   runProbabilisticBacktest, summarizeProbabilisticBacktest,
   isIndistinguishableFromChance, buildCandidates, nextDrawDateFrom,
+  runProbabilisticBacktestForField, summarizeProbabilisticBacktestForField,
 } from "../lib/models.js";
 
 async function fetchAllDraws() {
