@@ -2,7 +2,7 @@ name: Import lottery draw
 
 on:
   schedule:
-    - cron: '0 13 1,16 * *'   # 20:00 ICT on the 1st and 16th
+    - cron: "0 13 1,16 * *"
   workflow_dispatch: {}
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
         env:
           SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-       - run: node scripts/run-backtest.js
+      - run: node scripts/run-backtest.js
         env:
           SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
