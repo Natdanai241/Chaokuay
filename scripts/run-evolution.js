@@ -1,0 +1,126 @@
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+
+import { runEvolutionEngine, STRATEGIES, precomputeStrategyDistributions, fitnessForWeights, MIN_WARMUP } from "../lib/models.js";
+
+async function fetchAllDraws() {
+  const draws = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/draws?select=draw_date,first_prize,front3,back3,back2&order=draw_date.asc&offset=${offset}&limit=${pageSize}`,
+      { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
+    );
+    if (!r.ok) throw new Error(`Fetch draws failed: ${r.status} ${await r.text()}`);
+    const page = await r.json();
+    draws.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return draws
+    .map((d) => ({ drawDate: d.draw_date, firstPrize: d.first_prize, front3: d.front3, back3: d.back3, back2: d.back2 }))
+    .sort((a, b) => a.drawDate.localeCompare(b.drawDate));
+}
+
+async function insertRow(table, row) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}`,
+      "Content-Type": "application/json", Prefer: "return=minimal",
+    },
+    body: JSON.stringify([row]),
+  });
+  if (!r.ok) throw new Error(`Insert ${table} failed: ${r.status} ${await r.text()}`);
+}
+
+async function fetchActiveWeightVector() {
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/weight_version_history?adopted=eq.true&select=weights&order=created_at.desc&limit=1`,
+    { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
+  );
+  if (!r.ok) throw new Error(`Fetch active weights failed: ${r.status} ${await r.text()}`);
+  const rows = await r.json();
+  if (!rows[0]) return null;
+  const named = rows[0].weights;
+  return STRATEGIES.map((s) => named.find((w) => w.strategy === s.id)?.weight ?? 1);
+}
+
+async function main() {
+  const draws = await fetchAllDraws();
+  console.log(`[run-evolution] Loaded ${draws.length} draws, ${STRATEGIES.length} strategies in the pool`);
+
+  const result = runEvolutionEngine(draws);
+
+  console.log(`[run-evolution] ${result.evaluationCount} candidate ensembles evaluated (${result.populationSize} x ${result.generations} generations)`);
+  console.log(`[run-evolution] Selection set: ${result.selectionSetSize} draws | Held-out: ${result.heldOutSampleSize} draws`);
+  console.log(
+    `[run-evolution] Selection Brier -- evolved: ${result.selectionBrierEvolved.toFixed(4)} ` +
+    `equal-weight: ${result.selectionBrierEqualWeight.toFixed(4)}`
+  );
+  console.log(
+    `[run-evolution] Held-out Brier -- evolved: ${result.heldOutBrierEvolved.toFixed(4)} ` +
+    `equal-weight: ${result.heldOutBrierEqualWeight.toFixed(4)} random baseline: ${result.randomBaselineBrier.toFixed(4)}`
+  );
+  console.log(`[run-evolution] Evolved beats equal-weight on held-out: ${result.evolvedBeatsEqualWeightOnHeldOut}`);
+  console.log(`[run-evolution] Evolved beats random on held-out: ${result.evolvedBeatsRandomOnHeldOut}`);
+  console.log("[run-evolution] Best weights found:", result.bestWeights.map((w) => `${w.strategy}=${w.weight.toFixed(3)}`).join(", "));
+
+  const row = {
+    run_at: new Date().toISOString(),
+    population_size: result.populationSize,
+    generations: result.generations,
+    evaluation_count: result.evaluationCount,
+    selection_set_size: result.selectionSetSize,
+    held_out_sample_size: result.heldOutSampleSize,
+    best_weights: result.bestWeights,
+    selection_brier_evolved: result.selectionBrierEvolved,
+    selection_brier_equal_weight: result.selectionBrierEqualWeight,
+    held_out_brier_evolved: result.heldOutBrierEvolved,
+    held_out_brier_equal_weight: result.heldOutBrierEqualWeight,
+    random_baseline_brier: result.randomBaselineBrier,
+    evolved_beats_equal_weight_on_held_out: result.evolvedBeatsEqualWeightOnHeldOut,
+    evolved_beats_random_on_held_out: result.evolvedBeatsRandomOnHeldOut,
+    generation_log: result.generationLog,
+  };
+  await insertRow("evolution_runs", row);
+  console.log("[run-evolution] Stored run.");
+
+  const sorted = [...draws].sort((a, b) => a.drawDate.localeCompare(b.drawDate));
+  const splitIdx = Math.floor(sorted.length * 0.7);
+  const heldOutCache = precomputeStrategyDistributions(sorted, Math.max(MIN_WARMUP, splitIdx), sorted.length);
+  const evolvedVector = STRATEGIES.map((s) => result.bestWeights.find((w) => w.strategy === s.id).weight);
+  const evolvedHeldOutBrier = fitnessForWeights(evolvedVector, heldOutCache);
+  const heldOutSE = 0.02 / Math.sqrt(heldOutCache.length || 1);
+  const nowIso = new Date().toISOString();
+
+  const activeVector = await fetchActiveWeightVector();
+  let versionRow;
+  if (!activeVector) {
+    versionRow = {
+      created_at: nowIso, weights: result.bestWeights, source: "evolution-engine",
+      adopted: true, previous_weights: null,
+      held_out_brier_new: evolvedHeldOutBrier, held_out_brier_previous: null,
+      held_out_sample_size: heldOutCache.length,
+      reason: "No previously-adopted configuration existed -- adopting this run's evolved weights as the initial active configuration.",
+    };
+  } else {
+    const activeHeldOutBrier = fitnessForWeights(activeVector, heldOutCache);
+    const improvement = activeHeldOutBrier - evolvedHeldOutBrier;
+    const adopt = improvement > 2 * heldOutSE;
+    versionRow = {
+      created_at: nowIso, weights: result.bestWeights, source: "evolution-engine",
+      adopted: adopt,
+      previous_weights: STRATEGIES.map((s, i) => ({ strategy: s.id, weight: activeVector[i] })),
+      held_out_brier_new: evolvedHeldOutBrier, held_out_brier_previous: activeHeldOutBrier,
+      held_out_sample_size: heldOutCache.length,
+      reason: adopt
+        ? `Held-out Brier improved from ${activeHeldOutBrier.toFixed(4)} to ${evolvedHeldOutBrier.toFixed(4)}, beyond the noise threshold -- adopted.`
+        : `Held-out Brier (${evolvedHeldOutBrier.toFixed(4)}) not significantly better than the current active configuration (${activeHeldOutBrier.toFixed(4)}) -- configuration unchanged.`,
+    };
+  }
+  await insertRow("weight_version_history", versionRow);
+  console.log(`[run-evolution] ${versionRow.reason}`);
+  console.log("[run-evolution] Done.");
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
