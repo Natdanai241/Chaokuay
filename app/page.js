@@ -1,11 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "../lib/supabaseClient";
 import {
-  LayoutDashboard, Sparkles, ScrollText, BarChart3, ScanSearch, BrainCircuit,
-  ListOrdered, Settings as SettingsIcon, Menu, X, MoonStar, TrendingUp,
-  Database, Loader2, ShieldAlert,import {
   LayoutDashboard, Sparkles, ScrollText, BarChart3, ScanSearch, BrainCircuit,
   ListOrdered, Settings as SettingsIcon, Menu, X, MoonStar, TrendingUp,
   Database, Loader2, ShieldAlert, ChevronDown,
@@ -21,8 +18,6 @@ import {
   isIndistinguishableFromChance, makeRng, markovPick, monteCarloDigitLocal, monteCarloNumberLocal,
   monteCarloPick, monteCarloTopN, nextDrawDateFrom, oddEvenRatio, pairFrequency, parityCorrelation,
   positionFrequency, repeatedDigitNumbers, runBacktest, runProbabilisticBacktest, runStrategy,
-  seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest, summarizeProbabilisticBacktest,
-  tripleFrequency,  positionFrequency, repeatedDigitNumbers, runBacktest, runProbabilisticBacktest, runStrategy,
   scoreStrategyPick, seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest,
   summarizeProbabilisticBacktest, tripleFrequency,
 } from "../lib/models.js";
