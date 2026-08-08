@@ -11,16 +11,30 @@ function mostRecentDrawDate() {
   return { year, month, day };
 }
 
+async function fetchGloWithRetry(body, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch("https://www.glo.or.th/api/checking/getLotteryResult", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`GLO fetch failed: ${res.status} ${await res.text()}`);
+      return res.json();
+    } catch (err) {
+      lastErr = err;
+      console.log(`[import-draw] Attempt ${i + 1}/${attempts} failed: ${err.message}`);
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 5000 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 async function main() {
   const { year, month, day } = mostRecentDrawDate();
 
-  const res = await fetch("https://www.glo.or.th/api/checking/getLotteryResult", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date: pad(day), month: pad(month), year: String(year) }),
-  });
-  if (!res.ok) throw new Error(`GLO fetch failed: ${res.status} ${await res.text()}`);
-  const data = await res.json();
+  const data = await fetchGloWithRetry({ date: pad(day), month: pad(month), year: String(year) });
 
   const prizes = data?.response?.result?.data;
   if (!prizes) throw new Error("Unexpected GLO response shape: " + JSON.stringify(data));
