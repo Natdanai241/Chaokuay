@@ -5,7 +5,10 @@ import { supabase } from "../lib/supabaseClient";
 import {
   LayoutDashboard, Sparkles, ScrollText, BarChart3, ScanSearch, BrainCircuit,
   ListOrdered, Settings as SettingsIcon, Menu, X, MoonStar, TrendingUp,
-  Database, Loader2, ShieldAlert,
+  Database, Loader2, ShieldAlert,import {
+  LayoutDashboard, Sparkles, ScrollText, BarChart3, ScanSearch, BrainCircuit,
+  ListOrdered, Settings as SettingsIcon, Menu, X, MoonStar, TrendingUp,
+  Database, Loader2, ShieldAlert, ChevronDown,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid,
@@ -19,7 +22,9 @@ import {
   monteCarloPick, monteCarloTopN, nextDrawDateFrom, oddEvenRatio, pairFrequency, parityCorrelation,
   positionFrequency, repeatedDigitNumbers, runBacktest, runProbabilisticBacktest, runStrategy,
   seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest, summarizeProbabilisticBacktest,
-  tripleFrequency,
+  tripleFrequency,  positionFrequency, repeatedDigitNumbers, runBacktest, runProbabilisticBacktest, runStrategy,
+  scoreStrategyPick, seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest,
+  summarizeProbabilisticBacktest, tripleFrequency,
 } from "../lib/models.js";
 
 const COLORS = {
@@ -431,8 +436,94 @@ function GenerateView({ draws, onGenerated }) {
   );
 }
 
+function DrawLearningPanel({ actual, strategyPicksForDraw, ensemblePick }) {
+  const fieldDefs = [
+    { key: "first", label: "รางวัลที่ 1", scoreKey: "firstPrizeMatchPct" },
+    { key: "front3", label: "เลขหน้า 3 ตัว", scoreKey: "front3MatchPct" },
+    { key: "back3", label: "เลขท้าย 3 ตัว", scoreKey: "back3MatchPct" },
+    { key: "back2", label: "เลขท้าย 2 ตัว", scoreKey: "back2MatchPct" },
+  ];
+
+  const rows = STRATEGIES.map((s) => {
+    const pick = strategyPicksForDraw.get(s.id);
+    if (!pick) return null;
+    return { id: s.id, label: s.nameTh, pick, scores: scoreStrategyPick(pick, actual), isEnsemble: false };
+  }).filter(Boolean);
+
+  if (ensemblePick) {
+    rows.push({ id: "ensemble", label: "Ensemble (คำทำนายรวม)", pick: ensemblePick, scores: scoreStrategyPick(ensemblePick, actual), isEnsemble: true });
+  }
+
+  return (
+    <div style={{ padding: "4px 20px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+      {fieldDefs.map(({ key, label, scoreKey }) => {
+        const rowsSorted = [...rows].sort((a, b) => b.scores[scoreKey] - a.scores[scoreKey]);
+        return (
+          <div key={key}>
+            <p className="ck-eyebrow" style={{ marginBottom: 6 }}>{label}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {rowsSorted.map((r) => (
+                <div key={r.id} className="flex items-center justify-between" style={{ fontSize: "0.78rem", padding: "3px 0" }}>
+                  <span style={{ color: r.isEnsemble ? "var(--gold-bright)" : "var(--mist)", fontWeight: r.isEnsemble ? 600 : 400 }}>
+                    {r.label}
+                  </span>
+                  <span className="ck-numeral" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: "rgba(237,230,214,0.55)", fontSize: "0.7rem" }}>
+                      {key === "front3" || key === "back3" ? r.pick[key].join(", ") : r.pick[key]}
+                    </span>
+                    <span style={{ color: r.isEnsemble ? "var(--gold-bright)" : "var(--parchment)", minWidth: 44, textAlign: "right" }}>
+                      {r.scores[scoreKey].toFixed(1)}%
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HistoryView({ draws }) {
   const sorted = [...draws].sort((a, b) => b.drawDate.localeCompare(a.drawDate));
+
+  const [strategyByDate, setStrategyByDate] = useState(new Map());
+  const [ensembleByDate, setEnsembleByDate] = useState(new Map());
+  const [expanded, setExpanded] = useState(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      supabase.from("strategy_predictions").select("target_draw_date, strategy_id, back2, front3, back3, first_prize"),
+      supabase.from("predictions").select("target_draw_date, rank, back2, front3, back3, first_prize").eq("rank", 1),
+    ]).then(([strategyRes, ensembleRes]) => {
+      if (cancelled) return;
+      if (!strategyRes.error && strategyRes.data) {
+        const byDate = new Map();
+        for (const row of strategyRes.data) {
+          if (!byDate.has(row.target_draw_date)) byDate.set(row.target_draw_date, new Map());
+          byDate.get(row.target_draw_date).set(row.strategy_id, { back2: row.back2, front3: row.front3, back3: row.back3, first: row.first_prize });
+        }
+        setStrategyByDate(byDate);
+      }
+      if (!ensembleRes.error && ensembleRes.data) {
+        const byDate = new Map();
+        for (const row of ensembleRes.data) byDate.set(row.target_draw_date, { back2: row.back2, front3: row.front3, back3: row.back3, first: row.first_prize });
+        setEnsembleByDate(byDate);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  function toggle(drawDate) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(drawDate) ? next.delete(drawDate) : next.add(drawDate);
+      return next;
+    });
+  }
+
   return (
     <div className="mx-auto flex flex-col" style={{ maxWidth: 950, gap: 20 }}>
       <div>
@@ -442,15 +533,36 @@ function HistoryView({ draws }) {
       </div>
       <Card>
         <div className="ck-divide">
-          {sorted.map((d) => (
-            <div key={d.id} className="flex flex-wrap items-center justify-between" style={{ padding: "16px 20px", gap: 14 }}>
-              <span style={{ fontSize: "0.8rem", color: "var(--parchment)", minWidth: 130 }}>{formatThaiDate(d.drawDate)}</span>
-              <NumberRow digits={d.firstPrize} size="sm" tone="gold" />
-              <div className="flex" style={{ gap: 8 }}>{d.front3.map((n, i) => <NumberRow key={i} digits={n} size="sm" tone="mist" />)}</div>
-              <div className="flex" style={{ gap: 8 }}>{d.back3.map((n, i) => <NumberRow key={i} digits={n} size="sm" tone="mist" />)}</div>
-              <NumberRow digits={d.back2} size="sm" tone="cold" />
-            </div>
-          ))}
+          {sorted.map((d) => {
+            const strategyPicksForDraw = strategyByDate.get(d.drawDate);
+            const ensemblePick = ensembleByDate.get(d.drawDate);
+            const hasLearning = Boolean(strategyPicksForDraw && ensemblePick);
+            const isOpen = expanded.has(d.drawDate);
+            return (
+              <div key={d.id}>
+                <div
+                  onClick={hasLearning ? () => toggle(d.drawDate) : undefined}
+                  className="flex flex-wrap items-center justify-between"
+                  style={{ padding: "16px 20px", gap: 14, cursor: hasLearning ? "pointer" : "default" }}
+                >
+                  <span style={{ fontSize: "0.8rem", color: "var(--parchment)", minWidth: 130 }}>{formatThaiDate(d.drawDate)}</span>
+                  <NumberRow digits={d.firstPrize} size="sm" tone="gold" />
+                  <div className="flex" style={{ gap: 8 }}>{d.front3.map((n, i) => <NumberRow key={i} digits={n} size="sm" tone="mist" />)}</div>
+                  <div className="flex" style={{ gap: 8 }}>{d.back3.map((n, i) => <NumberRow key={i} digits={n} size="sm" tone="mist" />)}</div>
+                  <NumberRow digits={d.back2} size="sm" tone="cold" />
+                  {hasLearning && (
+                    <ChevronDown size={16} color={COLORS.gold} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                  )}
+                </div>
+                {hasLearning && isOpen && (
+                  <div style={{ borderTop: "1px solid rgba(201,162,75,0.15)", background: "rgba(30,24,40,0.35)" }}>
+                    <p className="ck-eyebrow" style={{ padding: "12px 20px 0", color: "var(--gold-bright)" }}>ประสิทธิภาพแบบจำลองสำหรับงวดนี้</p>
+                    <DrawLearningPanel actual={d} strategyPicksForDraw={strategyPicksForDraw} ensemblePick={ensemblePick} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </Card>
     </div>
