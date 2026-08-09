@@ -780,11 +780,86 @@ function ModelsView({ draws }) {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+                    )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center" style={{ gap: 8 }}><History size={16} color={COLORS.gold} /> ประวัติการวิวัฒนาการน้ำหนัก</CardTitle>
+          <CardDescription>บันทึกจริงจาก Evolution Engine (รันตามรอบที่ตั้งไว้ล่วงหน้า) — แยกจากกลไกปรับน้ำหนักจากผลจริงแบบสด (Live Learning) โดยสิ้นเชิง</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {evolutionLoading ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>กำลังโหลด...</p>
+          ) : evolutionRuns.length === 0 ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>ยังไม่มีประวัติการวิวัฒนาการน้ำหนัก</p>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              {evolutionRuns.map((run) => {
+                const isOpen = expandedRuns.has(run.id);
+                const prevMap = run.previous_weights ? new Map(run.previous_weights.map((w) => [w.strategy, w.weight])) : null;
+                const runDate = new Date(run.created_at).toLocaleString("th-TH", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                return (
+                  <div key={run.id} style={{ border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden" }}>
+                    <div
+                      onClick={() => toggleRun(run.id)}
+                      className="flex flex-wrap items-center justify-between"
+                      style={{ padding: "12px 14px", gap: 10, cursor: "pointer", background: "rgba(30,24,40,0.4)" }}
+                    >
+                      <div className="flex items-center" style={{ gap: 10 }}>
+                        <span style={{ fontSize: "0.8rem", color: "var(--parchment)" }}>{runDate}</span>
+                        <Badge tone={run.adopted ? "gold" : "mist"}>{run.adopted ? "นำไปใช้งาน" : "ไม่ได้นำไปใช้"}</Badge>
+                        {!prevMap && <Badge tone="cold">ค่าเริ่มต้น</Badge>}
+                      </div>
+                      <div className="flex items-center" style={{ gap: 10 }}>
+                        <span className="ck-numeral" style={{ fontSize: "0.72rem", color: "var(--mist)" }}>
+                          Brier {run.held_out_brier_new?.toFixed(4)}
+                          {run.held_out_brier_previous != null && ` (เดิม ${run.held_out_brier_previous.toFixed(4)})`}
+                          {run.held_out_sample_size != null && ` · ${run.held_out_sample_size} งวด`}
+                        </span>
+                        <ChevronDown size={14} color={COLORS.gold} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                      </div>
+                    </div>
+                    {isOpen && (
+                      <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${COLORS.border}` }}>
+                        <p style={{ fontSize: "0.72rem", color: "var(--mist)", marginBottom: 10 }}>{run.reason}</p>
+                        <div className="flex flex-col" style={{ gap: 4 }}>
+                          {[...run.weights].sort((a, b) => b.weight - a.weight).map((w) => {
+                            const stratName = STRATEGIES.find((s) => s.id === w.strategy)?.nameTh ?? w.strategy;
+                            const prevWeight = prevMap?.get(w.strategy);
+                            const delta = prevWeight != null ? w.weight - prevWeight : null;
+                            return (
+                              <div key={w.strategy} className="flex items-center justify-between" style={{ fontSize: "0.78rem", padding: "3px 0" }}>
+                                <span style={{ color: "var(--parchment)" }}>{stratName}</span>
+                                <span className="ck-numeral" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  {prevWeight != null && (<>
+                                    <span style={{ color: "var(--mist)" }}>{(prevWeight * 100).toFixed(1)}%</span>
+                                    <span style={{ color: "var(--mist)" }}>→</span>
+                                  </>)}
+                                  <span style={{ color: "var(--gold-bright)" }}>{(w.weight * 100).toFixed(1)}%</span>
+                                  {delta != null && (
+                                    <span style={{ color: delta > 0 ? "var(--cold-bright)" : delta < 0 ? "var(--ember)" : "var(--mist)", minWidth: 46, textAlign: "right" }}>
+                                      {delta > 0 ? "+" : ""}{(delta * 100).toFixed(1)}%
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
 
       <Card><CardHeader><CardTitle>วิธีอ่านตัวเลขเหล่านี้</CardTitle></CardHeader>
+
         <CardContent className="flex flex-col" style={{ gap: 8, fontSize: "0.875rem", color: "var(--mist)" }}>
           <p>ผลสลากแต่ละงวดเป็นเหตุการณ์สุ่มอิสระจากงวดก่อนหน้า อัตราตรงที่คาดหวังในระยะยาวคือระดับโอกาสสุ่มล้วน (≈1% สำหรับเลขท้าย 2 ตัว สูงขึ้นเล็กน้อยสำหรับเลขท้าย/หน้า 3 ตัว เพราะมี 2 เลขต่องวด)</p>
           <p>ตัวเลขที่สูงหรือต่ำกว่านี้ในบางช่วง เป็นความผันผวนตามธรรมชาติของกลุ่มตัวอย่างขนาดเล็ก ({draws.length} งวด) ไม่ใช่หลักฐานว่าแบบจำลองใดทำนายผลสุ่มได้จริง</p>
