@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabaseClient";
 import {
   LayoutDashboard, Sparkles, ScrollText, BarChart3, ScanSearch, BrainCircuit,
   ListOrdered, Settings as SettingsIcon, Menu, X, MoonStar, TrendingUp,
-  Database, Loader2, ShieldAlert, ChevronDown,
+    Database, Loader2, ShieldAlert, ChevronDown, History,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, ReferenceLine, ResponsiveContainer, CartesianGrid,
@@ -693,11 +693,36 @@ function ModelsView({ draws }) {
       .order("computed_at", { ascending: true })
       .then(({ data, error }) => {
         if (cancelled) return;
-        if (!error && data) setHistory(data);
+                if (!error && data) setHistory(data);
         setHistoryLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
+
+  const [evolutionRuns, setEvolutionRuns] = useState([]);
+  const [evolutionLoading, setEvolutionLoading] = useState(true);
+  const [expandedRuns, setExpandedRuns] = useState(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("weight_version_history")
+      .select("id, created_at, weights, source, adopted, previous_weights, held_out_brier_new, held_out_brier_previous, held_out_sample_size, reason")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) setEvolutionRuns(data);
+        setEvolutionLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  function toggleRun(id) {
+    setExpandedRuns((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   const chartData = useMemo(() => {
     const byTime = new Map();
