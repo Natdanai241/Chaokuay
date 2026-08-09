@@ -369,12 +369,32 @@ function GenerateView({ draws, onGenerated }) {
   const [candidates, setCandidates] = useState(null);
   const [loading, setLoading] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  const [evolutionDate, setEvolutionDate] = useState(null);
 
-  async function handleGenerate() {
+    async function handleGenerate() {
     setLoading(true); setRevealed(false);
+
+    let weights = null;
+    let usedEvolutionDate = null;
+    try {
+      const { data, error } = await supabase
+        .from("weight_version_history")
+        .select("weights, created_at")
+        .eq("adopted", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (!error && Array.isArray(data?.[0]?.weights) && data[0].weights.length > 0) {
+        weights = data[0].weights;
+        usedEvolutionDate = data[0].created_at;
+      }
+    } catch {
+      // Supabase/network failure -- falls through to the backtest-derived fallback below
+    }
+    if (!weights) weights = deriveWeights(runBacktest(draws));
+
     await new Promise((r) => setTimeout(r, 600));
-    const result = buildCandidates(draws, deriveWeights(runBacktest(draws)), 3);
-    setCandidates(result); setLoading(false);
+    const result = buildCandidates(draws, weights, 3);
+    setCandidates(result); setEvolutionDate(usedEvolutionDate); setLoading(false);
         onGenerated(result, nextDrawDateFrom(draws));
     fetch("/api/predictions", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -398,7 +418,11 @@ function GenerateView({ draws, onGenerated }) {
         {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
         {loading ? "กำลังคำนวณ..." : "สร้างคำทำนาย"}
       </GoldButton>
-
+      {candidates && revealed && evolutionDate && (
+        <p className="ck-eyebrow" style={{ color: "var(--gold-bright)" }}>
+          ใช้ Evolution Engine weights · {new Date(evolutionDate).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}
+        </p>
+      )}
       {candidates && revealed && (
         <div className="grid md:grid-cols-3" style={{ gap: 16, width: "100%" }}>
           {candidates.map((c) => (
