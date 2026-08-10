@@ -1,0 +1,24 @@
+name: Run walk-forward learning experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      simulate_last_n:
+        description: "Only simulate the last N draws (blank = full history)"
+        required: false
+        type: string
+
+jobs:
+  walk-forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/run-walk-forward-experiment.js
+        env:
+          SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SIMULATE_LAST_N: ${{ inputs.simulate_last_n }}
