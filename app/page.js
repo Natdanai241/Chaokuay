@@ -13,7 +13,7 @@ import {
 
 import {
   EXPLANATIONS, MIN_WARMUP, STRATEGIES, allDigits, back2FullDistribution, bayesianDigitPosterior,
-  bayesianPick, buildCandidates, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
+  bayesianPick, buildCandidates, computeLiveAdjustedWeights, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
   findMirrorPairs, frequencyPick, gapPick, hasConsecutiveDigits, highLowDistribution, hotColdNumbers,
   isIndistinguishableFromChance, makeRng, markovPick, monteCarloDigitLocal, monteCarloNumberLocal,
   monteCarloPick, monteCarloTopN, nextDrawDateFrom, oddEvenRatio, pairFrequency, parityCorrelation,
@@ -369,13 +369,16 @@ function GenerateView({ draws, onGenerated }) {
   const [candidates, setCandidates] = useState(null);
   const [loading, setLoading] = useState(false);
   const [revealed, setRevealed] = useState(false);
-  const [evolutionDate, setEvolutionDate] = useState(null);
+  const [learningInfo, setLearningInfo] = useState(null);
 
-    async function handleGenerate() {
+  async function handleGenerate() {
     setLoading(true); setRevealed(false);
 
-    let weights = null;
-    let usedEvolutionDate = null;
+    const nextTarget = nextDrawDateFrom(draws);
+    console.log(`[Generate] next draw: ${nextTarget}`);
+
+    let baselineWeights = null;
+    let evolutionDate = null;
     try {
       const { data, error } = await supabase
         .from("weight_version_history")
@@ -384,21 +387,60 @@ function GenerateView({ draws, onGenerated }) {
         .order("created_at", { ascending: false })
         .limit(1);
       if (!error && Array.isArray(data?.[0]?.weights) && data[0].weights.length > 0) {
-        weights = data[0].weights;
-        usedEvolutionDate = data[0].created_at;
+        baselineWeights = data[0].weights;
+        evolutionDate = data[0].created_at;
       }
-    } catch {
-      // Supabase/network failure -- falls through to the backtest-derived fallback below
-    }
-    if (!weights) weights = deriveWeights(runBacktest(draws));
+    } catch {}
+    if (!baselineWeights) baselineWeights = deriveWeights(runBacktest(draws));
+
+    let learningEvaluations = [];
+    let walkForwardThrough = null;
+    try {
+      const { data: latestRun } = await supabase
+        .from("walk_forward_ensemble_runs")
+        .select("run_id")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const runId = latestRun?.[0]?.run_id;
+      if (runId) {
+        const { data: wfRows, error: wfError } = await supabase
+          .from("walk_forward_strategy_runs")
+          .select("strategy_id, back2_match_pct, target_draw_date")
+          .eq("run_id", runId)
+          .lt("target_draw_date", nextTarget);
+        if (!wfError && wfRows?.length) {
+          learningEvaluations = learningEvaluations.concat(wfRows);
+          walkForwardThrough = wfRows.reduce((max, r) => (r.target_draw_date > max ? r.target_draw_date : max), wfRows[0].target_draw_date);
+        }
+      }
+    } catch {}
+    try {
+      const { data: liveRows, error: liveError } = await supabase
+        .from("strategy_prediction_evaluations")
+        .select("strategy_id, back2_match_pct, target_draw_date")
+        .lt("target_draw_date", nextTarget);
+      if (!liveError && liveRows?.length) learningEvaluations = learningEvaluations.concat(liveRows);
+    } catch {}
+
+    const weights = computeLiveAdjustedWeights(baselineWeights, learningEvaluations);
+    const learningSource = walkForwardThrough ? "walk-forward" : evolutionDate ? "evolution-engine" : "backtest";
+
+    console.log(`[Generate] learning source: ${learningSource}`);
+    console.log(`[Generate] learning through: ${walkForwardThrough || evolutionDate || "n/a"}`);
+    console.log(`[Generate] learned samples: ${learningEvaluations.length}`);
+    console.log(`[Generate] weights: ${weights.map((w) => `${w.strategy}=${w.weight.toFixed(3)}`).join(", ")}`);
+    console.log(`[Generate] fallback: ${!evolutionDate ? "evolution-engine unavailable, used backtest baseline" : "none"}`);
+    if (!walkForwardThrough) console.log("[Generate] walk-forward learning unavailable");
 
     await new Promise((r) => setTimeout(r, 600));
     const result = buildCandidates(draws, weights, 3);
-    setCandidates(result); setEvolutionDate(usedEvolutionDate); setLoading(false);
-        onGenerated(result, nextDrawDateFrom(draws));
+    setCandidates(result);
+    setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length });
+    setLoading(false);
+        onGenerated(result, nextTarget);
     fetch("/api/predictions", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetDrawDate: nextDrawDateFrom(draws), candidates: result }),
+      body: JSON.stringify({ targetDrawDate: nextTarget, candidates: result }),
     }).catch(() => {});
     requestAnimationFrame(() => setRevealed(true));
   }
@@ -418,10 +460,19 @@ function GenerateView({ draws, onGenerated }) {
         {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
         {loading ? "กำลังคำนวณ..." : "สร้างคำทำนาย"}
       </GoldButton>
-      {candidates && revealed && evolutionDate && (
-        <p className="ck-eyebrow" style={{ color: "var(--gold-bright)" }}>
-          ใช้ Evolution Engine weights · {new Date(evolutionDate).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}
-        </p>
+      {candidates && revealed && learningInfo && (
+        <div className="flex flex-col items-center" style={{ gap: 2 }}>
+          <p className="ck-eyebrow" style={{ color: "var(--gold-bright)" }}>
+            {learningInfo.evolutionDate
+              ? `ใช้ Evolution Engine weights · ${new Date(learningInfo.evolutionDate).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}`
+              : "ใช้ Backtest weights"}
+          </p>
+          {learningInfo.walkForwardThrough && (
+            <p className="ck-eyebrow" style={{ color: "var(--cold-bright)" }}>
+              ใช้ Walk-Forward Learning · ล่าสุด: {new Date(learningInfo.walkForwardThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · จำนวนข้อมูลเรียนรู้: {learningInfo.sampleSize} รายการ
+            </p>
+          )}
+        </div>
       )}
       {candidates && revealed && (
         <div className="grid md:grid-cols-3" style={{ gap: 16, width: "100%" }}>
