@@ -393,34 +393,41 @@ function GenerateView({ draws, onGenerated }) {
     } catch {}
     if (!baselineWeights) baselineWeights = deriveWeights(runBacktest(draws));
 
-    let learningEvaluations = [];
+        let learningEvaluations = [];
     let walkForwardThrough = null;
+    let walkForwardDebug = "not attempted";
     try {
-      const { data: latestRun } = await supabase
+      const { data: latestRun, error: runError } = await supabase
         .from("walk_forward_ensemble_runs")
         .select("run_id")
         .order("created_at", { ascending: false })
         .limit(1);
-      const runId = latestRun?.[0]?.run_id;
-      if (runId) {
-        const { data: wfRows, error: wfError } = await supabase
-          .from("walk_forward_strategy_runs")
-          .select("strategy_id, back2_match_pct, target_draw_date")
-          .eq("run_id", runId)
-          .lt("target_draw_date", nextTarget);
-        if (!wfError && wfRows?.length) {
-          learningEvaluations = learningEvaluations.concat(wfRows);
-          walkForwardThrough = wfRows.reduce((max, r) => (r.target_draw_date > max ? r.target_draw_date : max), wfRows[0].target_draw_date);
+      if (runError) {
+        walkForwardDebug = `run lookup error: ${runError.message}`;
+      } else {
+        const runId = latestRun?.[0]?.run_id;
+        if (!runId) {
+          walkForwardDebug = "no run_id found in walk_forward_ensemble_runs";
+        } else {
+          const { data: wfRows, error: wfError } = await supabase
+            .from("walk_forward_strategy_runs")
+            .select("strategy_id, back2_match_pct, target_draw_date")
+            .eq("run_id", runId)
+            .lt("target_draw_date", nextTarget);
+          if (wfError) {
+            walkForwardDebug = `rows query error: ${wfError.message}`;
+          } else if (!wfRows?.length) {
+            walkForwardDebug = `run_id ${runId.slice(0, 8)} found but 0 rows before ${nextTarget}`;
+          } else {
+            learningEvaluations = learningEvaluations.concat(wfRows);
+            walkForwardThrough = wfRows.reduce((max, r) => (r.target_draw_date > max ? r.target_draw_date : max), wfRows[0].target_draw_date);
+            walkForwardDebug = `ok: ${wfRows.length} rows`;
+          }
         }
       }
-    } catch {}
-    try {
-      const { data: liveRows, error: liveError } = await supabase
-        .from("strategy_prediction_evaluations")
-        .select("strategy_id, back2_match_pct, target_draw_date")
-        .lt("target_draw_date", nextTarget);
-      if (!liveError && liveRows?.length) learningEvaluations = learningEvaluations.concat(liveRows);
-    } catch {}
+    } catch (err) {
+      walkForwardDebug = `exception: ${err.message}`;
+    }
 
     const weights = computeLiveAdjustedWeights(baselineWeights, learningEvaluations);
     const learningSource = walkForwardThrough ? "walk-forward" : evolutionDate ? "evolution-engine" : "backtest";
@@ -435,7 +442,7 @@ function GenerateView({ draws, onGenerated }) {
     await new Promise((r) => setTimeout(r, 600));
     const result = buildCandidates(draws, weights, 3);
     setCandidates(result);
-    setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length });
+        setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length, walkForwardDebug });
     setLoading(false);
         onGenerated(result, nextTarget);
     fetch("/api/predictions", {
@@ -467,10 +474,12 @@ function GenerateView({ draws, onGenerated }) {
               ? `ใช้ Evolution Engine weights · ${new Date(learningInfo.evolutionDate).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}`
               : "ใช้ Backtest weights"}
           </p>
-          {learningInfo.walkForwardThrough && (
+                    {learningInfo.walkForwardThrough ? (
             <p className="ck-eyebrow" style={{ color: "var(--cold-bright)" }}>
               ใช้ Walk-Forward Learning · ล่าสุด: {new Date(learningInfo.walkForwardThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · จำนวนข้อมูลเรียนรู้: {learningInfo.sampleSize} รายการ
             </p>
+          ) : (
+            <p className="ck-eyebrow" style={{ color: "var(--mist)", fontSize: "0.6rem" }}>(walk-forward: {learningInfo.walkForwardDebug})</p>
           )}
         </div>
       )}
