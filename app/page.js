@@ -393,7 +393,7 @@ function GenerateView({ draws, onGenerated }) {
     } catch {}
     if (!baselineWeights) baselineWeights = deriveWeights(runBacktest(draws));
 
-        let learningEvaluations = [];
+            let learningEvaluations = [];
     let walkForwardThrough = null;
     let walkForwardDebug = "not attempted";
     try {
@@ -409,28 +409,50 @@ function GenerateView({ draws, onGenerated }) {
         if (!runId) {
           walkForwardDebug = "no run_id found in walk_forward_ensemble_runs";
         } else {
-          const { data: wfRows, error: wfError } = await supabase
-            .from("walk_forward_strategy_runs")
-            .select("strategy_id, back2_match_pct, target_draw_date")
-            .eq("run_id", runId)
-            .lt("target_draw_date", nextTarget);
-          if (wfError) {
-            walkForwardDebug = `rows query error: ${wfError.message}`;
-          } else if (!wfRows?.length) {
+          let allWfRows = [];
+          let pageError = null;
+          const pageSize = 1000;
+          for (let from = 0; ; from += pageSize) {
+            const { data: page, error: err } = await supabase
+              .from("walk_forward_strategy_runs")
+              .select("strategy_id, back2_match_pct, target_draw_date")
+              .eq("run_id", runId)
+              .lt("target_draw_date", nextTarget)
+              .order("target_draw_date", { ascending: true })
+              .range(from, from + pageSize - 1);
+            if (err) { pageError = err; break; }
+            allWfRows = allWfRows.concat(page || []);
+            if (!page || page.length < pageSize) break;
+          }
+          if (pageError) {
+            walkForwardDebug = `rows query error: ${pageError.message}`;
+          } else if (!allWfRows.length) {
             walkForwardDebug = `run_id ${runId.slice(0, 8)} found but 0 rows before ${nextTarget}`;
           } else {
-            learningEvaluations = learningEvaluations.concat(wfRows);
-            walkForwardThrough = wfRows.reduce((max, r) => (r.target_draw_date > max ? r.target_draw_date : max), wfRows[0].target_draw_date);
-            walkForwardDebug = `ok: ${wfRows.length} rows`;
+            learningEvaluations = learningEvaluations.concat(allWfRows);
+            walkForwardThrough = allWfRows[allWfRows.length - 1].target_draw_date;
+            walkForwardDebug = `ok: ${allWfRows.length} rows (${allWfRows[0].target_draw_date} to ${walkForwardThrough})`;
           }
         }
       }
     } catch (err) {
       walkForwardDebug = `exception: ${err.message}`;
     }
-
-    const weights = computeLiveAdjustedWeights(baselineWeights, learningEvaluations);
-    const learningSource = walkForwardThrough ? "walk-forward" : evolutionDate ? "evolution-engine" : "backtest";
+    try {
+      let allLiveRows = [];
+      const pageSize = 1000;
+      for (let from = 0; ; from += pageSize) {
+        const { data: page, error: liveError } = await supabase
+          .from("strategy_prediction_evaluations")
+          .select("strategy_id, back2_match_pct, target_draw_date")
+          .lt("target_draw_date", nextTarget)
+          .range(from, from + pageSize - 1);
+        if (liveError || !page) break;
+        allLiveRows = allLiveRows.concat(page);
+        if (page.length < pageSize) break;
+      }
+      if (allLiveRows.length) learningEvaluations = learningEvaluations.concat(allLiveRows);
+    } catch {}
 
     console.log(`[Generate] learning source: ${learningSource}`);
     console.log(`[Generate] learning through: ${walkForwardThrough || evolutionDate || "n/a"}`);
@@ -442,7 +464,7 @@ function GenerateView({ draws, onGenerated }) {
     await new Promise((r) => setTimeout(r, 600));
     const result = buildCandidates(draws, weights, 3);
     setCandidates(result);
-        setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length, walkForwardDebug });
+        setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length, walkForwardDebug, weightsChanged });
     setLoading(false);
         onGenerated(result, nextTarget);
     fetch("/api/predictions", {
@@ -476,7 +498,7 @@ function GenerateView({ draws, onGenerated }) {
           </p>
                     {learningInfo.walkForwardThrough ? (
             <p className="ck-eyebrow" style={{ color: "var(--cold-bright)" }}>
-              ใช้ Walk-Forward Learning · ล่าสุด: {new Date(learningInfo.walkForwardThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · จำนวนข้อมูลเรียนรู้: {learningInfo.sampleSize} รายการ
+                            ใช้ Walk-Forward Learning · ล่าสุด: {new Date(learningInfo.walkForwardThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · จำนวนข้อมูลเรียนรู้: {learningInfo.sampleSize} รายการ · น้ำหนักเปลี่ยน {learningInfo.weightsChanged}/11
             </p>
           ) : (
             <p className="ck-eyebrow" style={{ color: "var(--mist)", fontSize: "0.6rem" }}>(walk-forward: {learningInfo.walkForwardDebug})</p>
