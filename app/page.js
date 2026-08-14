@@ -393,7 +393,7 @@ function GenerateView({ draws, onGenerated }) {
     } catch {}
     if (!baselineWeights) baselineWeights = deriveWeights(runBacktest(draws));
 
-            let learningEvaluations = [];
+    let learningEvaluations = [];
     let walkForwardThrough = null;
     let walkForwardDebug = "not attempted";
     try {
@@ -454,6 +454,13 @@ function GenerateView({ draws, onGenerated }) {
       if (allLiveRows.length) learningEvaluations = learningEvaluations.concat(allLiveRows);
     } catch {}
 
+    const weights = computeLiveAdjustedWeights(baselineWeights, learningEvaluations);
+    const weightsChanged = weights.filter((w) => {
+      const base = baselineWeights.find((b) => b.strategy === w.strategy)?.weight ?? 1;
+      return Math.abs(w.weight - base) > 0.0005;
+    }).length;
+    const learningSource = walkForwardThrough ? "walk-forward" : evolutionDate ? "evolution-engine" : "backtest";
+
     console.log(`[Generate] learning source: ${learningSource}`);
     console.log(`[Generate] learning through: ${walkForwardThrough || evolutionDate || "n/a"}`);
     console.log(`[Generate] learned samples: ${learningEvaluations.length}`);
@@ -464,7 +471,7 @@ function GenerateView({ draws, onGenerated }) {
     await new Promise((r) => setTimeout(r, 600));
     const result = buildCandidates(draws, weights, 3);
     setCandidates(result);
-        setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length, walkForwardDebug, weightsChanged });
+    setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length, walkForwardDebug, weightsChanged });
     setLoading(false);
         onGenerated(result, nextTarget);
     fetch("/api/predictions", {
