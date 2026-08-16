@@ -87,6 +87,8 @@ async function fetchActiveWeights() {
 async function main() {
   const draws = await fetchAllDraws();
   console.log(`[run-backtest] Loaded ${draws.length} draws`);
+  const frozenBoundaryDate = await fetchFrozenBoundary();
+  console.log(`[run-backtest] Frozen boundary: ${frozenBoundaryDate} (informational -- this script's outputs are not selection/optimization, so it isn't filtered)`);
   if (draws.length < 10) throw new Error("Too few draws to backtest meaningfully (<10) — aborting.");
 
   const justImported = draws[draws.length - 1];
