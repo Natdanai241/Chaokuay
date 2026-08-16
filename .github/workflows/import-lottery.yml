@@ -1,0 +1,24 @@
+name: Import lottery draw
+
+on:
+  schedule:
+    # Every 30 min, 14:00-19:59 Bangkok (07:00-12:59 UTC), on draw days (1st & 16th).
+    # GLO's own API can lag behind news outlets after the ~14:00 broadcast; a single
+    # early-morning cron has no way to recover from that. Polling does, safely --
+    # import-draw.js upserts on draw_date (ignore-duplicates), so runs before the
+    # result is posted just fail/retry, and runs after it exists are no-ops.
+    - cron: "*/30 7-12 1,16 * *"
+  workflow_dispatch: {}
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/import-draw.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
