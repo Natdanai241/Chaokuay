@@ -1,7 +1,7 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 
-import { runMLModelsEvaluation, developmentDraws } from "../lib/models.js";
+import { runMLModelsEvaluation } from "../lib/models.js";
 
 async function fetchAllDraws() {
   const draws = [];
@@ -21,17 +21,6 @@ async function fetchAllDraws() {
     .sort((a, b) => a.drawDate.localeCompare(b.drawDate));
 }
 
-async function fetchFrozenBoundary() {
-  const r = await fetch(
-    `${SUPABASE_URL}/rest/v1/dataset_splits?select=frozen_boundary_date&order=created_at.desc&limit=1`,
-    { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
-  );
-  if (!r.ok) throw new Error(`Fetch frozen boundary failed: ${r.status} ${await r.text()}`);
-  const rows = await r.json();
-  if (!rows[0]) throw new Error("No row in dataset_splits -- a frozen boundary must exist before ML model evaluation can run.");
-  return rows[0].frozen_boundary_date;
-}
-
 async function insertRow(table, row) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: "POST",
@@ -45,14 +34,12 @@ async function insertRow(table, row) {
 }
 
 async function main() {
-  const allDraws = await fetchAllDraws();
-  const frozenBoundaryDate = await fetchFrozenBoundary();
-  const draws = developmentDraws(allDraws, frozenBoundaryDate);
-  console.log(`[run-ml-models] Loaded ${allDraws.length} total draws; ${draws.length} within development/validation boundary (frozen boundary: ${frozenBoundaryDate})`);
+  const draws = await fetchAllDraws();
+  console.log(`[run-ml-models] Loaded ${draws.length} draws`);
   console.log("[run-ml-models] Note: LSTM/Transformer intentionally not included -- both model");
   console.log("[run-ml-models] temporal dependencies, and this dataset has none (i.i.d. draws).");
 
-  const result = runMLModelsEvaluation(draws, 0.7, frozenBoundaryDate);
+  const result = runMLModelsEvaluation(draws);
   const heldOutSampleSize = result.models.randomForest.heldOutSampleSize;
 
   console.log(`[run-ml-models] Random baseline Brier: ${result.randomBaselineBrier.toFixed(4)}`);
@@ -81,4 +68,4 @@ async function main() {
   console.log("[run-ml-models] Stored run. Done.");
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => { console.error(err); process.exit(1); })
