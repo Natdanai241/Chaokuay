@@ -13,5 +13,6 @@ jobs:
           node-version: 24
       - run: node scripts/run-backtest.js
         env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
           SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
