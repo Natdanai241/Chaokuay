@@ -1,4 +1,4 @@
-name: Run ML models
+name: Run ml models
 
 on:
   workflow_dispatch: {}
