@@ -84,6 +84,17 @@ async function fetchActiveWeights() {
   return rows[0]?.weights || null;
 }
 
+async function fetchFrozenBoundary() {
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/dataset_splits?select=frozen_boundary_date&order=created_at.desc&limit=1`,
+    { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
+  );
+  if (!r.ok) throw new Error(`Fetch frozen boundary failed: ${r.status} ${await r.text()}`);
+  const rows = await r.json();
+  if (!rows[0]) throw new Error("No row in dataset_splits -- a frozen boundary must exist before this script can run.");
+  return rows[0].frozen_boundary_date;
+}
+
 async function main() {
   const draws = await fetchAllDraws();
   console.log(`[run-backtest] Loaded ${draws.length} draws`);
