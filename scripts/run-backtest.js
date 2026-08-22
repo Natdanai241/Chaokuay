@@ -1,5 +1,6 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+const LIVE_RUN_ID = "00000000-0000-0000-0000-000000000000"; // stable sentinel for live-pipeline rows in walk_forward_strategy_runs (vs. a fresh randomUUID() per replay run)
 
 import {
   runBacktest, summarizeBacktest, deriveWeights,
