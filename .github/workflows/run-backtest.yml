@@ -2,6 +2,9 @@ name: Run model backtest
 
 on:
   workflow_dispatch: {}
+concurrency:
+  group: chaokuay-learning-state
+  cancel-in-progress: false
 
 jobs:
   backtest:
