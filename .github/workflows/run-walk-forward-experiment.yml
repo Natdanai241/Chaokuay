@@ -7,6 +7,15 @@ on:
         description: "Only simulate the last N draws (blank = full history)"
         required: false
         type: string
+      commit_live_state:
+        description: "Replace strategy_learning_state with this run's final state (requires simulate_last_n blank)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: chaokuay-learning-state
+  cancel-in-progress: false
 
 jobs:
   walk-forward:
@@ -22,3 +31,4 @@ jobs:
           SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SIMULATE_LAST_N: ${{ inputs.simulate_last_n }}
+          COMMIT_LIVE_STATE: ${{ inputs.commit_live_state }}
