@@ -235,7 +235,7 @@ async function main() {
     const prior = priorLearningState.get(s.id) ?? null;
     const updated = updatedLearningState.get(s.id);
     return {
-      run_id: "live", target_draw_date: justImported.drawDate, history_size: historyBeforeJustImported.length,
+      run_id: LIVE_RUN_ID, target_draw_date: justImported.drawDate, history_size: historyBeforeJustImported.length,
       strategy_id: s.id, weight_before: weightsBeforeMap.get(s.id) ?? 1, weight_after: finalWeightsMap.get(s.id) ?? 1,
       predicted_back2: null, predicted_front3: null, predicted_back3: null, predicted_first_prize: null,
       actual_back2: justImported.back2, actual_front3: justImported.front3, actual_back3: justImported.back3, actual_first_prize: justImported.firstPrize,
