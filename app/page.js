@@ -13,7 +13,7 @@ import {
 
 import {
   EXPLANATIONS, MIN_WARMUP, STRATEGIES, allDigits, back2FullDistribution, bayesianDigitPosterior,
-  bayesianPick, buildCandidates, computeLiveAdjustedWeights, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
+  bayesianPick, buildCandidates, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
   findMirrorPairs, frequencyPick, gapPick, hasConsecutiveDigits, highLowDistribution, hotColdNumbers,
   isIndistinguishableFromChance, makeRng, markovPick, monteCarloDigitLocal, monteCarloNumberLocal,
   monteCarloPick, monteCarloTopN, nextDrawDateFrom, oddEvenRatio, pairFrequency, parityCorrelation,
@@ -21,6 +21,7 @@ import {
   scoreStrategyPick, seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest,
   summarizeProbabilisticBacktest, tripleFrequency,
 } from "../lib/models.js";
+import { deployWeightsFromState, stateRowToState } from "../lib/learning.js";
 
 const COLORS = {
   ink: "#0D0B14", surface: "#17131F", gold: "#C9A24B", goldBright: "#E8C876",
@@ -57,7 +58,11 @@ function formatThaiDate(isoDate) {
   const d = new Date(isoDate + "T00:00:00Z");
   return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear() + 543}`;
 }
-
+function learningStatusLabelTh(w) {
+  if (!w.evaluatedCount) return "ยังไม่มีข้อมูลการเรียนรู้";
+  if (w.adjustment === 1) return "อยู่ในช่วงผันผวนของการสุ่ม — ไม่ปรับน้ำหนัก";
+  return w.adjustment > 1 ? "ดีกว่าเส้นฐานอย่างมีนัยสำคัญ — ปรับน้ำหนักขึ้น" : "แย่กว่าเส้นฐานอย่างมีนัยสำคัญ — ปรับน้ำหนักลง";
+}
 const THEME_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
@@ -393,85 +398,44 @@ function GenerateView({ draws, onGenerated }) {
     } catch {}
     if (!baselineWeights) baselineWeights = deriveWeights(runBacktest(draws));
 
-    let learningEvaluations = [];
-    let walkForwardThrough = null;
-    let walkForwardDebug = "not attempted";
+        let learningStateRows = [];
+    let learningDebug = "not attempted";
     try {
-      const { data: latestRun, error: runError } = await supabase
-        .from("walk_forward_ensemble_runs")
-        .select("run_id")
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (runError) {
-        walkForwardDebug = `run lookup error: ${runError.message}`;
+      const { data, error } = await supabase
+        .from("strategy_learning_state")
+        .select("strategy_id, evaluated_count, long_term_mean_brier, recent_briers, last_target_draw_date, last_brier, model_version, updated_at");
+      if (error) {
+        learningDebug = `fetch error: ${error.message}`;
+      } else if (!data || data.length === 0) {
+        learningDebug = "strategy_learning_state has no rows yet";
       } else {
-        const runId = latestRun?.[0]?.run_id;
-        if (!runId) {
-          walkForwardDebug = "no run_id found in walk_forward_ensemble_runs";
-        } else {
-          let allWfRows = [];
-          let pageError = null;
-          const pageSize = 1000;
-          for (let from = 0; ; from += pageSize) {
-            const { data: page, error: err } = await supabase
-              .from("walk_forward_strategy_runs")
-              .select("strategy_id, back2_match_pct, target_draw_date")
-              .eq("run_id", runId)
-              .lt("target_draw_date", nextTarget)
-              .order("target_draw_date", { ascending: true })
-              .range(from, from + pageSize - 1);
-            if (err) { pageError = err; break; }
-            allWfRows = allWfRows.concat(page || []);
-            if (!page || page.length < pageSize) break;
-          }
-          if (pageError) {
-            walkForwardDebug = `rows query error: ${pageError.message}`;
-          } else if (!allWfRows.length) {
-            walkForwardDebug = `run_id ${runId.slice(0, 8)} found but 0 rows before ${nextTarget}`;
-          } else {
-            learningEvaluations = learningEvaluations.concat(allWfRows);
-            walkForwardThrough = allWfRows[allWfRows.length - 1].target_draw_date;
-            walkForwardDebug = `ok: ${allWfRows.length} rows (${allWfRows[0].target_draw_date} to ${walkForwardThrough})`;
-          }
-        }
+        learningStateRows = data;
+        learningDebug = `ok: ${data.length} strategies`;
       }
     } catch (err) {
-      walkForwardDebug = `exception: ${err.message}`;
+      learningDebug = `exception: ${err.message}`;
     }
-    try {
-      let allLiveRows = [];
-      const pageSize = 1000;
-      for (let from = 0; ; from += pageSize) {
-        const { data: page, error: liveError } = await supabase
-          .from("strategy_prediction_evaluations")
-          .select("strategy_id, back2_match_pct, target_draw_date")
-          .lt("target_draw_date", nextTarget)
-          .range(from, from + pageSize - 1);
-        if (liveError || !page) break;
-        allLiveRows = allLiveRows.concat(page);
-        if (page.length < pageSize) break;
-      }
-      if (allLiveRows.length) learningEvaluations = learningEvaluations.concat(allLiveRows);
-    } catch {}
 
-    const weights = computeLiveAdjustedWeights(baselineWeights, learningEvaluations);
+    const learningStateMap = new Map(learningStateRows.map((row) => [row.strategy_id, stateRowToState(row)]));
+    const weights = deployWeightsFromState(baselineWeights, learningStateMap);
     const weightsChanged = weights.filter((w) => {
       const base = baselineWeights.find((b) => b.strategy === w.strategy)?.weight ?? 1;
       return Math.abs(w.weight - base) > 0.0005;
     }).length;
-    const learningSource = walkForwardThrough ? "walk-forward" : evolutionDate ? "evolution-engine" : "backtest";
+    const validDates = learningStateRows.map((r) => r.last_target_draw_date).filter(Boolean);
+    const learningThrough = validDates.length ? validDates.reduce((a, b) => (b > a ? b : a)) : null;
+    const learningSampleSize = learningStateRows.length ? Math.max(...learningStateRows.map((r) => r.evaluated_count || 0)) : 0;
 
-    console.log(`[Generate] learning source: ${learningSource}`);
-    console.log(`[Generate] learning through: ${walkForwardThrough || evolutionDate || "n/a"}`);
-    console.log(`[Generate] learned samples: ${learningEvaluations.length}`);
+    console.log(`[Generate] baseline: ${evolutionDate ? `evolution-engine (${evolutionDate})` : "backtest fallback"}`);
+    console.log(`[Generate] learning state: ${learningDebug}`);
+    console.log(`[Generate] learning through: ${learningThrough || "n/a"}, max evaluated: ${learningSampleSize}`);
     console.log(`[Generate] weights: ${weights.map((w) => `${w.strategy}=${w.weight.toFixed(3)}`).join(", ")}`);
-    console.log(`[Generate] fallback: ${!evolutionDate ? "evolution-engine unavailable, used backtest baseline" : "none"}`);
-    if (!walkForwardThrough) console.log("[Generate] walk-forward learning unavailable");
+
 
     await new Promise((r) => setTimeout(r, 600));
     const result = buildCandidates(draws, weights, 3);
     setCandidates(result);
-    setLearningInfo({ evolutionDate, walkForwardThrough, sampleSize: learningEvaluations.length, walkForwardDebug, weightsChanged });
+      setLearningInfo({ evolutionDate, learningThrough, sampleSize: learningSampleSize, learningDebug, weightsChanged });
     setLoading(false);
         onGenerated(result, nextTarget);
     fetch("/api/predictions", {
@@ -503,12 +467,12 @@ function GenerateView({ draws, onGenerated }) {
               ? `ใช้ Evolution Engine weights · ${new Date(learningInfo.evolutionDate).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}`
               : "ใช้ Backtest weights"}
           </p>
-                    {learningInfo.walkForwardThrough ? (
+                  {learningInfo.learningThrough ? (
             <p className="ck-eyebrow" style={{ color: "var(--cold-bright)" }}>
-                            ใช้ Walk-Forward Learning · ล่าสุด: {new Date(learningInfo.walkForwardThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · จำนวนข้อมูลเรียนรู้: {learningInfo.sampleSize} รายการ · น้ำหนักเปลี่ยน {learningInfo.weightsChanged}/11
+                            ใช้ Live Learning · ล่าสุด: {new Date(learningInfo.learningThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · ประเมินแล้ว {learningInfo.sampleSize} งวด · น้ำหนักเปลี่ยน {learningInfo.weightsChanged}/11
             </p>
           ) : (
-            <p className="ck-eyebrow" style={{ color: "var(--mist)", fontSize: "0.6rem" }}>(walk-forward: {learningInfo.walkForwardDebug})</p>
+            <p className="ck-eyebrow" style={{ color: "var(--mist)", fontSize: "0.6rem" }}>(live learning: {learningInfo.learningDebug})</p>
           )}
         </div>
       )}
@@ -829,7 +793,7 @@ function ModelsView({ draws }) {
     return () => { cancelled = true; };
   }, []);
 
-  function toggleRun(id) {
+    function toggleRun(id) {
     setExpandedRuns((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -837,7 +801,43 @@ function ModelsView({ draws }) {
     });
   }
 
+  const [learningState, setLearningState] = useState([]);
+  const [learningStateLoading, setLearningStateLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("strategy_learning_state")
+      .select("strategy_id, evaluated_count, long_term_mean_brier, recent_briers, last_target_draw_date, last_brier, model_version, updated_at")
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) setLearningState(data);
+        setLearningStateLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const activeWeights = useMemo(() => evolutionRuns.find((r) => r.adopted)?.weights ?? null, [evolutionRuns]);
+  const productionBaselineWeights = activeWeights || weights;
+  const learningStateByStrategy = useMemo(() => {
+    const m = new Map();
+    for (const row of learningState) m.set(row.strategy_id, stateRowToState(row));
+    return m;
+  }, [learningState]);
+  const adaptiveWeights = useMemo(
+    () => deployWeightsFromState(productionBaselineWeights, learningStateByStrategy),
+    [productionBaselineWeights, learningStateByStrategy]
+  );
+  const learningThroughDate = useMemo(() => {
+    const dates = learningState.map((r) => r.last_target_draw_date).filter(Boolean);
+    return dates.length ? dates.reduce((a, b) => (b > a ? b : a)) : null;
+  }, [learningState]);
+  const learningMaxEvaluated = useMemo(
+    () => (learningState.length ? Math.max(...learningState.map((r) => r.evaluated_count || 0)) : 0),
+    [learningState]
+  );
+
   const chartData = useMemo(() => {
+
     const byTime = new Map();
     for (const row of history) {
       const key = row.computed_at;
@@ -993,6 +993,53 @@ function ModelsView({ draws }) {
               })}
             </div>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center" style={{ gap: 8 }}><BrainCircuit size={16} color={COLORS.cold} /> น้ำหนักจากการเรียนรู้แบบสด (Live Learning)</CardTitle>
+          <CardDescription>
+            ปรับจากผลจริงของทุกงวดที่ผ่านมา แยกจาก Evolution Engine ด้านบนโดยสิ้นเชิง — ระบบเรียนรู้ต่อเนื่องทุกงวด แต่จะปรับน้ำหนักจริงก็ต่อเมื่อผลต่างจากโอกาสสุ่มมีนัยสำคัญทางสถิติเท่านั้น
+            {learningThroughDate && ` · ข้อมูลล่าสุดถึงงวด ${formatThaiDate(learningThroughDate)} · ประเมินแล้วสูงสุด ${learningMaxEvaluated} งวด`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {learningStateLoading ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>กำลังโหลด...</p>
+          ) : learningState.length === 0 ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>ยังไม่มีข้อมูล — ต้องรัน walk-forward experiment (commit_live_state) หรือรอ run-backtest ทำงานหลังงวดถัดไปก่อน</p>
+          ) : (
+            <div className="flex flex-col">
+              {[...adaptiveWeights].sort((a, b) => b.weight - a.weight).map((w) => {
+                const stratName = STRATEGIES.find((s) => s.id === w.strategy)?.nameTh ?? w.strategy;
+                const baseW = productionBaselineWeights.find((b) => b.strategy === w.strategy)?.weight ?? 1;
+                const delta = w.weight - baseW;
+                const changed = Math.abs(delta) > 0.0005;
+                return (
+                  <div key={w.strategy} style={{ padding: "10px 0", borderTop: `1px solid ${COLORS.border}` }}>
+                    <div className="flex items-center justify-between" style={{ fontSize: "0.8rem" }}>
+                      <span style={{ color: "var(--parchment)" }}>{stratName}</span>
+                      <span className="ck-numeral" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ color: "var(--mist)" }}>{(baseW * 100).toFixed(1)}%</span>
+                        <span style={{ color: "var(--mist)" }}>→</span>
+                        <span style={{ color: changed ? "var(--gold-bright)" : "var(--parchment)" }}>{(w.weight * 100).toFixed(1)}%</span>
+                        {changed && (
+                          <span style={{ color: delta > 0 ? "var(--cold-bright)" : "var(--ember)", minWidth: 46, textAlign: "right" }}>
+                            {delta > 0 ? "+" : ""}{(delta * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between" style={{ marginTop: 3, fontSize: "0.68rem", color: "var(--mist)" }}>
+                      <span>{learningStatusLabelTh(w)}</span>
+                      {w.evaluatedCount > 0 && <span>{w.evaluatedCount} งวด</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p style={{ marginTop: 14, fontSize: "0.68rem", color: "var(--mist)" }}>น้ำหนักที่เปลี่ยนไปไม่ได้แปลว่าแบบจำลองนั้นทำนายผลสลากได้จริง เป็นเพียงการถ่วงน้ำหนักตามผลย้อนหลังภายใต้เงื่อนไขทางสถิติที่กำหนดไว้ล่วงหน้าเท่านั้น</p>
         </CardContent>
       </Card>
 
