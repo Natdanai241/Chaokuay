@@ -25,30 +25,6 @@ function ResearchView() {
     return () => { cancelled = true; };
   }, []);
 
-function ResearchView() {
-  const [loading, setLoading] = useState(true);
-  const [featureDiscovery, setFeatureDiscovery] = useState(null);
-  const [evolution, setEvolution] = useState(null);
-  const [mlModels, setMlModels] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const [fd, evo, ml] = await Promise.all([
-        supabase.from("feature_discovery_runs").select("*").order("run_at", { ascending: false }).limit(1),
-        supabase.from("evolution_runs").select("*").order("run_at", { ascending: false }).limit(1),
-        supabase.from("ml_model_runs").select("*").order("run_at", { ascending: false }).limit(1),
-      ]);
-      if (cancelled) return;
-      setFeatureDiscovery(fd.data?.[0] || null);
-      setEvolution(evo.data?.[0] || null);
-      setMlModels(ml.data?.[0] || null);
-      setLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-  }, []);
-
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
 
   if (loading) {
