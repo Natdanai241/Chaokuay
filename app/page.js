@@ -60,8 +60,11 @@ function formatThaiDate(isoDate) {
 }
 function learningStatusLabelTh(w) {
   if (!w.evaluatedCount) return "ยังไม่มีข้อมูลการเรียนรู้";
-  if (w.adjustment === 1) return "อยู่ในช่วงผันผวนของการสุ่ม — ไม่ปรับน้ำหนัก";
-  return w.adjustment > 1 ? "ดีกว่าเส้นฐานอย่างมีนัยสำคัญ — ปรับน้ำหนักขึ้น" : "แย่กว่าเส้นฐานอย่างมีนัยสำคัญ — ปรับน้ำหนักลง";
+  const pct = Math.abs((w.adjustment - 1) * 100).toFixed(2);
+  if (Math.abs(w.adjustment - 1) < 0.005) return "อยู่ในช่วงผันผวนของการสุ่ม — แทบไม่ปรับน้ำหนัก";
+  const rel = w.relative != null ? (w.relative >= 0 ? "ดีกว่าค่าเฉลี่ยกลุ่ม" : "แย่กว่าค่าเฉลี่ยกลุ่ม") : "";
+  const conf = w.confidence != null ? ` · ความเชื่อมั่น ${Math.round(w.confidence * 100)}%` : "";
+  return `${rel}${conf} — ${w.adjustment > 1 ? "ปรับขึ้น" : "ปรับลง"} ${pct}%`;
 }
 const THEME_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
