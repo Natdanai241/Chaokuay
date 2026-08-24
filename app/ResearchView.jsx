@@ -64,22 +64,26 @@ function ResearchView() {
   const [evolution, setEvolution] = useState(null);
   const [mlModels, setMlModels] = useState(null);
   const [weightHistory, setWeightHistory] = useState([]);
+  const [walkForward, setWalkForward] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [fd, evo, ml, wh] = await Promise.all([
+      const [fd, evo, ml, wh, wf] = await Promise.all([
         supabase.from("feature_discovery_runs").select("*").order("run_at", { ascending: false }).limit(1),
         supabase.from("evolution_runs").select("*").order("run_at", { ascending: false }).limit(1),
         supabase.from("ml_model_runs").select("*").order("run_at", { ascending: false }).limit(1),
         supabase.from("weight_version_history").select("*").order("created_at", { ascending: false }).limit(10),
+        loadWalkForwardSummary(),
       ]);
       if (cancelled) return;
       setFeatureDiscovery(fd.data?.[0] || null);
       setEvolution(evo.data?.[0] || null);
       setMlModels(ml.data?.[0] || null);
       setWeightHistory(wh.data || []);
+      setWalkForward(wf);
       setLoading(false);
+      ]);
     }
     load();
     return () => { cancelled = true; };
@@ -89,6 +93,7 @@ function ResearchView() {
 
   if (loading) {
     return (
+  const verdict = computeVerdict({ featureDiscovery, evolution, mlModels, walkForward });
       <div className="mx-auto flex flex-col items-center" style={{ maxWidth: 950, gap: 12, paddingTop: 60 }}>
         <Loader2 size={24} color={COLORS.gold} className="animate-spin" />
         <p style={{ fontSize: "0.85rem", color: "var(--mist)" }}>กำลังโหลดผลการวิจัย...</p>
@@ -106,6 +111,35 @@ function ResearchView() {
           เพื่อแยกแยะรูปแบบที่เกิดจากสัญญาณจริง ออกจากรูปแบบที่เกิดจากความผันผวนของข้อมูลชุดค้นหาเอง
         </p>
       </div>
+            <Card>
+        <CardHeader>
+          <CardTitle>สรุปภาพรวมอย่างตรงไปตรงมา</CardTitle>
+          <CardDescription>ผลจากทุกวิธีการค้นหารูปแบบที่ผ่านมา ทดสอบด้วยข้อมูล held-out ที่ไม่เคยใช้ตอนค้นหาทั้งหมด</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col" style={{ gap: 12 }}>
+          {verdict.total === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: "var(--mist)" }}>ยังไม่มีผลการทดสอบให้สรุป — รันกระบวนการค้นหาด้านล่างก่อน</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap" style={{ gap: 8 }}>
+                {verdict.checks.map((c) => (
+                  <Badge key={c.label} tone={c.beats ? "gold" : "mist"}>{c.label}: {c.beats ? "เหนือกว่าโอกาสสุ่ม" : "ไม่ต่างจากโอกาสสุ่ม"}</Badge>
+                ))}
+              </div>
+              <p style={{ fontSize: "0.85rem", color: "var(--parchment)" }}>
+                {verdict.beatCount === 0
+                  ? `จากทั้งหมด ${verdict.total} วิธีการที่ทดสอบด้วยข้อมูล held-out ยังไม่มีวิธีใดเหนือกว่าโอกาสสุ่มอย่างมีนัยสำคัญ — สอดคล้องกับสมมติฐานที่ว่าผลสลากเป็นเหตุการณ์สุ่มอิสระในแต่ละงวด`
+                  : `${verdict.beatCount} จาก ${verdict.total} วิธีการเหนือกว่าโอกาสสุ่มบนข้อมูล held-out — ควรตรวจสอบเพิ่มเติมก่อนเชื่อถือ เนื่องจากการทดสอบหลายวิธีพร้อมกันมีโอกาสพบผลบวกลวงได้โดยบังเอิญ`}
+              </p>
+              {walkForward && (
+                <p style={{ fontSize: "0.72rem", color: "var(--mist)" }}>
+                  Adaptive learning (walk-forward, {walkForward.n} งวด): Brier เฉลี่ย baseline {walkForward.avgBaselineBrier.toFixed(5)} เทียบ adaptive {walkForward.avgAdaptiveBrier.toFixed(5)}
+                </p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
