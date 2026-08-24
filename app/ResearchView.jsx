@@ -1,3 +1,63 @@
+function mean(values) {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+}
+
+// Fetches the most recent walk-forward replay and aggregates it client-side
+// (same "fetch raw, aggregate in JS" style as runBacktest/summarizeBacktest
+// elsewhere in this codebase) rather than depending on a PostgREST aggregate
+// feature that may not be enabled on this project. Null if none stored yet.
+async function loadWalkForwardSummary() {
+  const latest = await supabase
+    .from("walk_forward_ensemble_runs")
+    .select("run_id")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const runId = latest.data?.[0]?.run_id;
+  if (!runId) return null;
+
+  const rows = await supabase
+    .from("walk_forward_ensemble_runs")
+    .select("baseline_back2_brier, adaptive_back2_brier, baseline_back2_match_pct, adaptive_back2_match_pct")
+    .eq("run_id", runId);
+  if (rows.error || !rows.data?.length) return null;
+
+  const n = rows.data.length;
+  const avg = (key) => mean(rows.data.map((r) => Number(r[key])));
+  // Paired difference test -- same 2*SE convention as isIndistinguishable-
+  // FromChance / run-evolution.js's adoption threshold elsewhere in this
+  // codebase: is baseline_brier - adaptive_brier reliably above zero?
+  const diffs = rows.data.map((r) => Number(r.baseline_back2_brier) - Number(r.adaptive_back2_brier));
+  const meanDiff = mean(diffs);
+  const variance = diffs.reduce((a, d) => a + (d - meanDiff) ** 2, 0) / Math.max(n - 1, 1);
+  const seDiff = Math.sqrt(variance / n);
+
+  return {
+    n,
+    avgBaselineBrier: avg("baseline_back2_brier"),
+    avgAdaptiveBrier: avg("adaptive_back2_brier"),
+    avgBaselineHitPct: avg("baseline_back2_match_pct"),
+    avgAdaptiveHitPct: avg("adaptive_back2_match_pct"),
+    adaptiveBeatsBaseline: meanDiff > 2 * seDiff,
+  };
+}
+
+// One honest verdict from whatever's actually been validated so far. Every
+// entry is a live flag read from a DB row, not a hardcoded conclusion --
+// if a method genuinely starts beating baseline, this reflects it
+// automatically next time it's run.
+function computeVerdict({ featureDiscovery, evolution, mlModels, walkForward }) {
+  const checks = [];
+  if (featureDiscovery) checks.push({ label: "Feature Discovery", beats: !!featureDiscovery.beats_baseline_on_held_out });
+  if (evolution) checks.push({ label: "Evolution Engine", beats: !!evolution.evolved_beats_random_on_held_out });
+  if (mlModels) {
+    checks.push({ label: "Random Forest", beats: !!mlModels.random_forest_beats_random });
+    checks.push({ label: "Gradient Boosted Trees", beats: !!mlModels.gbt_beats_random });
+    checks.push({ label: "Neural Network", beats: !!mlModels.nn_beats_random });
+  }
+  if (walkForward) checks.push({ label: "Adaptive Learning (walk-forward)", beats: !!walkForward.adaptiveBeatsBaseline });
+  return { checks, beatCount: checks.filter((c) => c.beats).length, total: checks.length };
+}
+
 function ResearchView() {
   const [loading, setLoading] = useState(true);
   const [featureDiscovery, setFeatureDiscovery] = useState(null);
