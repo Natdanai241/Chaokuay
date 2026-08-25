@@ -83,7 +83,6 @@ function ResearchView() {
       setWeightHistory(wh.data || []);
       setWalkForward(wf);
       setLoading(false);
-      ]);
     }
     load();
     return () => { cancelled = true; };
@@ -93,13 +92,14 @@ function ResearchView() {
 
   if (loading) {
     return (
-  const verdict = computeVerdict({ featureDiscovery, evolution, mlModels, walkForward });
       <div className="mx-auto flex flex-col items-center" style={{ maxWidth: 950, gap: 12, paddingTop: 60 }}>
         <Loader2 size={24} color={COLORS.gold} className="animate-spin" />
         <p style={{ fontSize: "0.85rem", color: "var(--mist)" }}>กำลังโหลดผลการวิจัย...</p>
       </div>
     );
   }
+
+  const verdict = computeVerdict({ featureDiscovery, evolution, mlModels, walkForward });
 
   return (
     <div className="mx-auto flex flex-col" style={{ maxWidth: 950, gap: 20 }}>
