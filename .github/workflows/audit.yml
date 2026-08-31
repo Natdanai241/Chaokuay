@@ -11,43 +11,55 @@ jobs:
         with:
           node-version: 20
 
-      - name: A. package.json module type
-        run: node -e "const p=require('./package.json');console.log('type =',p.type||'(none/commonjs)')"
+      - name: A. Parse checks
+        continue-on-error: true
+        run: |
+          node --input-type=module -e "import('./lib/models.js').then(()=>console.log('MODELS_PARSE: OK')).catch(e=>console.log('MODELS_PARSE: FAIL ->',e.message))"
+          node --input-type=module -e "import('./lib/learning.js').then(()=>console.log('LEARNING_PARSE: OK')).catch(e=>console.log('LEARNING_PARSE: FAIL ->',e.message))"
 
-      - name: B. Parse check lib/models.js
+      - name: B. Duplicate declaration scan
+        continue-on-error: true
+        run: |
+          for f in strategyFieldDigitProbs strategyFieldPositionProbs strategyFieldFullDistribution fieldPool fieldDigitLength laplaceRow marginalizeJoint digitGapByPosition; do
+            echo "models.js   decl($f) = $(grep -c "^\(export \)\?function $f(" lib/models.js)"
+          done
+          for f in applyLearningUpdate applyPositionLearningUpdateForAllStrategies deployPositionWeightsFromState stateRowToState stateToRow strategyFieldPositionSkill; do
+            echo "learning.js decl($f) = $(grep -c "^\(export \)\?function $f(" lib/learning.js)"
+          done
+
+      - name: C. Smoke test the per-position path
         continue-on-error: true
         run: |
           node --input-type=module -e "
-          import('./lib/models.js')
-            .then(()=>console.log('MODELS_PARSE: OK'))
-            .catch(e=>console.log('MODELS_PARSE: FAIL ->', e.message))"
+          import('./lib/models.js').then(async (m) => {
+            const draws = Array.from({length: 40}, (_, i) => ({
+              drawDate: '2020-01-' + String((i % 28) + 1).padStart(2,'0'),
+              firstPrize: String((i*137)%1000000).padStart(6,'0'),
+              front3: [String((i*13)%1000).padStart(3,'0'), String((i*29)%1000).padStart(3,'0')],
+              back3:  [String((i*17)%1000).padStart(3,'0'), String((i*31)%1000).padStart(3,'0')],
+              back2:  String((i*7)%100).padStart(2,'0'),
+            }));
+            const types = ['firstPrize','front3','back3','back2'];
+            let bad = 0, checked = 0;
+            for (const s of m.STRATEGIES) for (const t of types) {
+              checked++;
+              const marg = m.strategyFieldPositionProbs(s.id, draws, t);
+              const expect = t === 'firstPrize' ? 6 : t === 'back2' ? 2 : 3;
+              if (!marg || marg.length !== expect) { console.log('LEN FAIL', s.id, t, marg && marg.length); bad++; continue; }
+              for (const row of marg) {
+                const sum = row.reduce((a,b)=>a+b,0);
+                if (row.length !== 10 || !isFinite(sum) || Math.abs(sum-1) > 1e-6) {
+                  console.log('DIST FAIL', s.id, t, 'len='+row.length, 'sum='+sum); bad++; break;
+                }
+              }
+            }
+            console.log(bad === 0
+              ? 'SMOKE: OK -- ' + checked + '/44 strategy x type marginals valid and normalized'
+              : 'SMOKE: ' + bad + ' FAILURES');
+          }).catch(e=>console.log('SMOKE: FAIL ->', e.message));"
 
-      - name: C. Parse check lib/learning.js
+      - name: D. learning.js anchors for the next patch
         continue-on-error: true
         run: |
-          node --input-type=module -e "
-          import('./lib/learning.js')
-            .then(()=>console.log('LEARNING_PARSE: OK'))
-            .catch(e=>console.log('LEARNING_PARSE: FAIL ->', e.message))"
-
-      - name: D. Patch 1 line numbers
-        continue-on-error: true
-        run: |
-          echo '--- anchor start (positionFrequency(pool)) ---'
-          grep -n "const table = positionFrequency(pool);" lib/models.js
-          echo '--- anchor end (uniform return) ---'
-          grep -n "return Array.from({ length: len }, () => uniform);" lib/models.js
-          echo '--- strategyFieldDigitProbs occurrences ---'
-          grep -n "strategyFieldDigitProbs" lib/models.js
-          echo '--- total lines in models.js ---'
-          wc -l lib/models.js
-
-      - name: E. Scripts inventory
-        continue-on-error: true
-        run: |
-          echo '--- scripts/ ---'
-          ls -1 scripts/ || echo "(no scripts dir)"
-          echo '--- new-architecture references ---'
-          grep -rln "strategy_position_learning_state\|applyPositionLearningUpdateForAllStrategies\|deployPositionWeightsFromState\|buildCandidatesWithPositionWeights" --include=*.js . || echo "(none found)"
-          echo '--- migrations ---'
-          ls -1 supabase/migrations/ 2>/dev/null || ls -1 migrations/ 2>/dev/null || echo "(no migrations dir)"
+          grep -n "export const LEARNING_MODEL_VERSION\|export function stateRowToState\|export function stateToRow\|Digit-position ensemble learning\|export const RANDOM_BASELINE_DIGIT_BRIER" lib/learning.js
+          wc -l lib/learning.js lib/models.js
