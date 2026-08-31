@@ -1,0 +1,29 @@
+name: Run position walk-forward comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_position_state:
+        description: "Commit final learning state to strategy_position_learning_state"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: chaokuay-position-learning-state
+  cancel-in-progress: false
+
+jobs:
+  position-walkforward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/run-position-walkforward.js
+        env:
+          SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          COMMIT_POSITION_STATE: ${{ inputs.commit_position_state }}
