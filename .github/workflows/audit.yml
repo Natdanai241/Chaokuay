@@ -1,0 +1,53 @@
+name: Chaokuay Audit
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: A. package.json module type
+        run: node -e "const p=require('./package.json');console.log('type =',p.type||'(none/commonjs)')"
+
+      - name: B. Parse check lib/models.js
+        continue-on-error: true
+        run: |
+          node --input-type=module -e "
+          import('./lib/models.js')
+            .then(()=>console.log('MODELS_PARSE: OK'))
+            .catch(e=>console.log('MODELS_PARSE: FAIL ->', e.message))"
+
+      - name: C. Parse check lib/learning.js
+        continue-on-error: true
+        run: |
+          node --input-type=module -e "
+          import('./lib/learning.js')
+            .then(()=>console.log('LEARNING_PARSE: OK'))
+            .catch(e=>console.log('LEARNING_PARSE: FAIL ->', e.message))"
+
+      - name: D. Patch 1 line numbers
+        continue-on-error: true
+        run: |
+          echo '--- anchor start (positionFrequency(pool)) ---'
+          grep -n "const table = positionFrequency(pool);" lib/models.js
+          echo '--- anchor end (uniform return) ---'
+          grep -n "return Array.from({ length: len }, () => uniform);" lib/models.js
+          echo '--- strategyFieldDigitProbs occurrences ---'
+          grep -n "strategyFieldDigitProbs" lib/models.js
+          echo '--- total lines in models.js ---'
+          wc -l lib/models.js
+
+      - name: E. Scripts inventory
+        continue-on-error: true
+        run: |
+          echo '--- scripts/ ---'
+          ls -1 scripts/ || echo "(no scripts dir)"
+          echo '--- new-architecture references ---'
+          grep -rln "strategy_position_learning_state\|applyPositionLearningUpdateForAllStrategies\|deployPositionWeightsFromState\|buildCandidatesWithPositionWeights" --include=*.js . || echo "(none found)"
+          echo '--- migrations ---'
+          ls -1 supabase/migrations/ 2>/dev/null || ls -1 migrations/ 2>/dev/null || echo "(no migrations dir)"
