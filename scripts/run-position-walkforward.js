@@ -226,7 +226,8 @@ export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStat
     }
     const legacyCandidate = buildCandidates(history, legacyWeights, 1)[0];
     if (legacyCandidate) {
-      const legacyByType = { firstPrize: legacyCandidate.firstPrize, front3: legacyCandidate.front3, back3: legacyCandidate.back3, back2: legacyCandidate.back2 };
+        const legacyByType = { firstPrize: legacyCandidate.firstPrize, front3: legacyCandidate.front3[0], back3: legacyCandidate.back3[0], back2: legacyCandidate.back2 };
+
       for (const type of Object.keys(PREDICTION_TYPE_POSITIONS)) {
         const actualValues = getActualValues(actual, type);
         if (!actualValues || actualValues.length === 0) continue;
