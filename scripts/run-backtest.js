@@ -175,6 +175,20 @@ async function main() {
   console.log(`[run-backtest] Learning state updated for ${STRATEGIES.length} strategies from ${justImported.drawDate}`);
   // ---------------------------------------------------------------------------
 
+  // --- Step C: position-level continuous learning update ---------------------
+  // Same single-step, idempotent pattern as the back2-only block above, for
+  // the 154-state (strategy x predictionType x digitPosition) system built
+  // and validated in Step B. applyPositionLearningUpdateForAllStrategies is
+  // the SAME function the full historical replay calls once per draw -- this
+  // is one more step of that sequence on the real "just imported" draw, never
+  // a re-walk of history.
+  const priorPositionRows = await fetchPositionLearningState();
+  const priorPositionState = new Map(priorPositionRows.map((row) => [positionKey(row.strategy_id, row.prediction_type, row.digit_position), positionStateRowToState(row)]));
+  const updatedPositionState = applyPositionLearningUpdateForAllStrategies(priorPositionState, historyBeforeJustImported, justImported);
+  await upsert("strategy_position_learning_state", [...updatedPositionState.entries()].map(([key, state]) => positionStateToRow(key, state)), "strategy_id,prediction_type,digit_position", "merge-duplicates");
+  console.log(`[run-backtest] Position learning state updated (154 states) from ${justImported.drawDate}`);
+  // ---------------------------------------------------------------------------
+
   const classic = summarizeBacktest(runBacktest(draws));
   const weights = deriveWeights(runBacktest(draws));
   const probRows = runProbabilisticBacktest(draws);
@@ -270,6 +284,30 @@ async function main() {
   }));
   await upsert("predictions", candidates, "target_draw_date,rank", "merge-duplicates");
   console.log(`[run-backtest] Stored ${candidates.length} predictions for ${targetDrawDate}`);
+  
+  // --- Step C: position-weighted prediction generation ------------------------
+  // Independent weight path: baseline always equal (1/11), then this draw's
+  // updated 154-state learning applied via deployPositionWeightsFromState.
+  // Never reads weight_version_history/Evolution Engine output, so Evolution
+  // Engine cannot override this system, by construction.
+  const equalBaseWeights = STRATEGIES.map((s) => ({ strategy: s.id, weight: 1 / STRATEGIES.length }));
+  const weightsByPosition = {};
+  for (const [type, len] of Object.entries(PREDICTION_TYPE_POSITIONS)) {
+    weightsByPosition[type] = [];
+    for (let pos = 0; pos < len; pos++) {
+      weightsByPosition[type].push(deployPositionWeightsFromState(equalBaseWeights, updatedPositionState, type, pos));
+    }
+  }
+  const positionCandidates = buildCandidatesWithPositionWeights(draws, weightsByPosition, 3).map((c) => ({
+    target_draw_date: targetDrawDate, rank: c.rank, first_prize: c.firstPrize,
+    front3: c.front3, back3: c.back3, back2: c.back2,
+    agreement_score: c.agreementScore, statistical_score: c.statisticalScore,
+    contributing_strategies: c.contributingStrategies, explanation_th: c.explanationTh,
+    generated_at: computedAt, source: "position-pipeline",
+  }));
+  await upsert("position_predictions", positionCandidates, "target_draw_date,rank,source", "merge-duplicates");
+  console.log(`[run-backtest] Stored ${positionCandidates.length} position-weighted predictions for ${targetDrawDate}`);
+  // ---------------------------------------------------------------------------
 
   const strategyRng = makeRng(seedFromDraws(draws));
   const strategyPicks = computeStrategyPicks(draws, strategyRng);
