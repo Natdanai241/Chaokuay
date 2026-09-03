@@ -2,12 +2,17 @@ name: Run model backtest
 
 on:
   workflow_dispatch: {}
+  workflow_run:
+    workflows: ["Import lottery draw"]
+    types: [completed]
+
 concurrency:
   group: chaokuay-learning-state
   cancel-in-progress: false
 
 jobs:
-  backtest:
+    backtest:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
