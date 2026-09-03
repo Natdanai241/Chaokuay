@@ -39,6 +39,7 @@ import {
   PREDICTION_TYPE_POSITIONS, RANDOM_BASELINE_DIGIT_BRIER,
   applyPositionLearningUpdateForAllStrategies, deployPositionWeightsFromState, strategyFieldPositionSkill,
 } from "../lib/learning.js";
+import { randomUUID } from "crypto";
 
 async function fetchAllDraws() {
   const draws = [];
@@ -152,6 +153,37 @@ function recordArm(acc, type, brierScore, rankOfActual, matchPct) {
   a.exactHits += matchPct === 100 ? 1 : 0; a.n += 1;
 }
 
+function emptyPositionSummaryAccumulator() {
+  const acc = {};
+  for (const [type, len] of Object.entries(PREDICTION_TYPE_POSITIONS)) {
+    acc[type] = Array.from({ length: len }, () => ({ brierSum: 0, rankSum: 0, scoredN: 0, hits: 0, n: 0 }));
+  }
+  return acc;
+}
+function recordPositionCell(cell, brierScore, rankOfActual, isHit) {
+  if (brierScore != null) { cell.brierSum += brierScore; cell.rankSum += rankOfActual; cell.scoredN += 1; }
+  cell.hits += isHit ? 1 : 0;
+  cell.n += 1;
+}
+
+function positionSummaryRows(runId, variant, acc) {
+  const rows = [];
+  for (const [type, len] of Object.entries(PREDICTION_TYPE_POSITIONS)) {
+    for (let pos = 0; pos < len; pos++) {
+      const a = acc[type][pos];
+      if (a.n === 0) continue;
+      rows.push({
+        run_id: runId, prediction_type: type, digit_position: pos, variant,
+        sample_size: a.n,
+        mean_brier: a.scoredN > 0 ? a.brierSum / a.scoredN : null,
+        mean_rank: a.scoredN > 0 ? a.rankSum / a.scoredN : null,
+        digit_hit_rate: a.hits / a.n,
+        random_baseline_brier: RANDOM_BASELINE_DIGIT_BRIER,
+      });
+    }
+  }
+  return rows;
+}
 export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStateByKey = new Map(), legacyRecomputeInterval = LEGACY_WEIGHT_RECOMPUTE_INTERVAL } = {}) {
   let stateByKey = new Map(priorStateByKey);
   const equalBaseWeights = STRATEGIES.map((s) => ({ strategy: s.id, weight: 1 / STRATEGIES.length }));
@@ -164,7 +196,10 @@ export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStat
 
   const armA = emptyArmAccumulator(), armB = emptyArmAccumulator(), armC = emptyArmAccumulator();
   const armD = new Map(STRATEGIES.map((s) => [s.id, emptyArmAccumulator()]));
-
+  const positionSummaryA = emptyPositionSummaryAccumulator();
+  const positionSummaryB = emptyPositionSummaryAccumulator();
+  const positionSummaryC = emptyPositionSummaryAccumulator();
+  const positionSummaryD = new Map(STRATEGIES.map((s) => [s.id, emptyPositionSummaryAccumulator()]));
   let legacyWeights = null;
   let stepsWalked = 0;
   const drawDatesWalked = [];
@@ -188,6 +223,10 @@ export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStat
           const skill = strategyFieldPositionSkill(s.id, history, actualValues, type, pos);
           const a = armD.get(s.id)[type];
           a.brierSum += skill.brierScore; a.rankSum += skill.rankOfActual; a.n += 1;
+          
+          const predictedDigit = argmaxDigit(distsByType[type].get(s.id)[pos]);
+          const isHit = actualValues.some((av) => Number(av[pos]) === predictedDigit);
+          recordPositionCell(positionSummaryD.get(s.id)[type][pos], skill.brierScore, skill.rankOfActual, isHit);
         }
       }
     }
@@ -214,6 +253,12 @@ export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStat
         }
         brierB += bestSkillB.brierScore; rankB += bestSkillB.rankOfActual;
         brierC += bestSkillC.brierScore; rankC += bestSkillC.rankOfActual;
+        
+        const digitB = digitsB[digitsB.length - 1], digitC = digitsC[digitsC.length - 1];
+        const hitB = actualValues.some((av) => Number(av[pos]) === digitB);
+        const hitC = actualValues.some((av) => Number(av[pos]) === digitC);
+        recordPositionCell(positionSummaryB[type][pos], bestSkillB.brierScore, bestSkillB.rankOfActual, hitB);
+        recordPositionCell(positionSummaryC[type][pos], bestSkillC.brierScore, bestSkillC.rankOfActual, hitC);
       }
 
       const assembledB = digitsB.join(""), assembledC = digitsC.join("");
@@ -227,15 +272,18 @@ export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStat
     const legacyCandidate = buildCandidates(history, legacyWeights, 1)[0];
     if (legacyCandidate) {
         const legacyByType = { firstPrize: legacyCandidate.firstPrize, front3: legacyCandidate.front3[0], back3: legacyCandidate.back3[0], back2: legacyCandidate.back2 };
-
+    }
       for (const type of Object.keys(PREDICTION_TYPE_POSITIONS)) {
         const actualValues = getActualValues(actual, type);
         if (!actualValues || actualValues.length === 0) continue;
         const predicted = legacyByType[type];
         const predictedList = Array.isArray(predicted) ? predicted : [predicted];
         recordArm(armA, type, 0, 0, bestPositionMatchPct(predictedList, actualValues));
-      }
-    }
+        
+      for (let pos = 0; pos < PREDICTION_TYPE_POSITIONS[type]; pos++) {
+          const isHit = actualValues.some((av) => Number(av[pos]) === Number(predicted[pos]));
+          recordPositionCell(positionSummaryA[type][pos], null, null,
+     }
 
     stateByKey = applyPositionLearningUpdateForAllStrategies(stateByKey, history, actual);
 
@@ -265,7 +313,8 @@ export function runWalkForward(sortedDraws, { startIndex = MIN_WARMUP, priorStat
   return {
     stepsWalked, firstDrawDateWalked: drawDatesWalked[0] ?? null, lastDrawDateWalked: drawDatesWalked.at(-1) ?? null,
     armA: summarize(armA), armB: summarize(armB), armC: summarize(armC), armD: armDSummary,
-    finalWeights, stateByKey,
+    finalWeights, stateByKey, positionSummaryA, positionSummaryB, positionSummaryC, positionSummaryD,
+
   };
 }
 
@@ -316,9 +365,18 @@ async function main() {
   } else {
     console.log("[run-position-walkforward] COMMIT_POSITION_STATE is not true -- dry run only.");
   }
+  
   console.log("[run-position-walkforward] Done.");
 }
-
+  const runId = randomUUID();
+  const summaryRows = [
+    ...positionSummaryRows(runId, "A", result.positionSummaryA),
+    ...positionSummaryRows(runId, "B", result.positionSummaryB),
+    ...positionSummaryRows(runId, "C", result.positionSummaryC),
+    ...[...result.positionSummaryD.entries()].flatMap(([strategyId, acc]) => positionSummaryRows(runId, `D:${strategyId}`, acc)),
+  ];
+  await upsert("position_walkforward_summary", summaryRows, "run_id,prediction_type,digit_position,variant", "merge-duplicates");
+  console.log(`[run-position-walkforward] Recorded ${summaryRows.length} A/B/C/D comparison rows to position_walkforward_summary (run_id=${runId}).`);
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => { console.error(err); process.exit(1); });
 }
