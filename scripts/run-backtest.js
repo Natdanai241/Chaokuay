@@ -5,12 +5,14 @@ const LIVE_RUN_ID = "00000000-0000-0000-0000-000000000000"; // stable sentinel f
 import {
   runBacktest, summarizeBacktest, deriveWeights,
   runProbabilisticBacktest, summarizeProbabilisticBacktest,
-  isIndistinguishableFromChance, buildCandidates, nextDrawDateFrom,
+  isIndistinguishableFromChance, buildCandidates, buildCandidatesWithPositionWeights, nextDrawDateFrom,
   rollingCalibrationCheck, makeRng, seedFromDraws, computeStrategyPicks, scoreStrategyPick,
   STRATEGIES,
 } from "../lib/models.js";
 import {
   applyLearningUpdateForAllStrategies, deployWeightsFromState, stateRowToState, stateToRow,
+  applyPositionLearningUpdateForAllStrategies, deployPositionWeightsFromState,
+  positionKey, positionStateRowToState, positionStateToRow, PREDICTION_TYPE_POSITIONS,
 } from "../lib/learning.js";
 
 async function fetchAllDraws() {
@@ -49,6 +51,17 @@ async function fetchLearningState() {
     { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
   );
   if (!r.ok) throw new Error(`Fetch learning state failed: ${r.status} ${await r.text()}`);
+  return r.json();
+}
+
+// Step C: position-level learning state (154 rows, fixed size -- no pagination
+// needed). Parallel to fetchLearningState above, not a replacement.
+async function fetchPositionLearningState() {
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/strategy_position_learning_state?select=strategy_id,prediction_type,digit_position,evaluated_count,long_term_mean_brier,recent_briers,last_target_draw_date,last_brier,model_version,updated_at`,
+    { headers: { apikey: SUPABASE_SECRET_KEY, Authorization: `Bearer ${SUPABASE_SECRET_KEY}` } }
+  );
+  if (!r.ok) throw new Error(`Fetch position learning state failed: ${r.status} ${await r.text()}`);
   return r.json();
 }
 
