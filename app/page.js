@@ -22,6 +22,7 @@ import {
   summarizeProbabilisticBacktest, tripleFrequency,
 } from "../lib/models.js";
 import { deployWeightsFromState, stateRowToState } from "../lib/learning.js";
+import PositionMonitorView from "./PositionMonitorView";
 
 const COLORS = {
   ink: "#0D0B14", surface: "#17131F", gold: "#C9A24B", goldBright: "#E8C876",
@@ -206,6 +207,7 @@ const NAV_ITEMS = [
   { id: "statistics", label: "สถิติ", icon: BarChart3 },
   { id: "patterns", label: "ค้นหารูปแบบ", icon: ScanSearch },
   { id: "models", label: "ประสิทธิภาพแบบจำลอง", icon: BrainCircuit },
+  { id: "position-monitor", label: "ติดตามระบบตำแหน่ง", icon: Database },
   { id: "predictions", label: "ประวัติคำทำนาย", icon: ListOrdered },
   { id: "settings", label: "ตั้งค่า", icon: SettingsIcon },
 ];
@@ -1204,7 +1206,7 @@ export default function ChaokuayPreview() {
     history: <HistoryView draws={draws} />,
     statistics: <StatisticsView draws={draws} />,
     patterns: <PatternsView draws={draws} />,
-    models: <ModelsView draws={draws} />,
+    models: <ModelsView draws={draws} "position-monitor": <PositionMonitorView />,
     predictions: <PredictionsView predictions={predictions} setView={setView} />,
     settings: <SettingsView draws={draws} />,
   };
