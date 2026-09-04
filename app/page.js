@@ -467,14 +467,10 @@ function GenerateView({ draws, onGenerated }) {
       </GoldButton>
       {candidates && revealed && learningInfo && (
         <div className="flex flex-col items-center" style={{ gap: 2 }}>
-          <p className="ck-eyebrow" style={{ color: "var(--gold-bright)" }}>
-            {learningInfo.evolutionDate
-              ? `ใช้ Evolution Engine weights · ${new Date(learningInfo.evolutionDate).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })}`
-              : "ใช้ Backtest weights"}
-          </p>
-                  {learningInfo.learningThrough ? (
+          <p className="ck-eyebrow" style={{ color: "var(--gold-bright)" }}>ใช้น้ำหนักเรียนรู้รายตำแหน่ง (154 states)</p>
+          {learningInfo.learningThrough ? (
             <p className="ck-eyebrow" style={{ color: "var(--cold-bright)" }}>
-                            ใช้ Live Learning · ล่าสุด: {new Date(learningInfo.learningThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · ประเมินแล้ว {learningInfo.sampleSize} งวด · น้ำหนักเปลี่ยน {learningInfo.weightsChanged}/11
+              ใช้ Live Learning · ล่าสุด: {new Date(learningInfo.learningThrough).toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" })} · ประเมินแล้ว {learningInfo.sampleSize} งวด · states ที่เรียนรู้แล้ว {learningInfo.statesEvaluated}/154
             </p>
           ) : (
             <p className="ck-eyebrow" style={{ color: "var(--mist)", fontSize: "0.6rem" }}>(live learning: {learningInfo.learningDebug})</p>
