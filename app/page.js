@@ -1190,7 +1190,8 @@ export default function ChaokuayPreview() {
     history: <HistoryView draws={draws} />,
     statistics: <StatisticsView draws={draws} />,
     patterns: <PatternsView draws={draws} />,
-    models: <ModelsView draws={draws} "position-monitor": <PositionMonitorView />,
+    models: <ModelsView draws={draws} />,
+    "position-monitor": <PositionMonitorView />,
     predictions: <PredictionsView predictions={predictions} setView={setView} />,
     settings: <SettingsView draws={draws} />,
   };
