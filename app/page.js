@@ -13,7 +13,7 @@ import {
 
 import {
   EXPLANATIONS, MIN_WARMUP, STRATEGIES, allDigits, back2FullDistribution, bayesianDigitPosterior,
-  bayesianPick, buildCandidates, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
+  bayesianPick, buildCandidates, buildCandidatesWithPositionWeights, defaultWeights, deriveWeights, digitFrequency, digitTransitionMatrix,
   findMirrorPairs, frequencyPick, gapPick, hasConsecutiveDigits, highLowDistribution, hotColdNumbers,
   isIndistinguishableFromChance, makeRng, markovPick, monteCarloDigitLocal, monteCarloNumberLocal,
   monteCarloPick, monteCarloTopN, nextDrawDateFrom, oddEvenRatio, pairFrequency, parityCorrelation,
@@ -21,7 +21,10 @@ import {
   scoreStrategyPick, seedFromDraws, shannonEntropy, strategyBack2DigitProbs, summarizeBacktest,
   summarizeProbabilisticBacktest, tripleFrequency,
 } from "../lib/models.js";
-import { deployWeightsFromState, stateRowToState } from "../lib/learning.js";
+import {
+  deployWeightsFromState, stateRowToState, PREDICTION_TYPE_POSITIONS,
+  deployPositionWeightsFromState, positionKey, positionStateRowToState,
+} from "../lib/learning.js";
 import PositionMonitorView from "./PositionMonitorView";
 
 const COLORS = {
@@ -387,68 +390,53 @@ function GenerateView({ draws, onGenerated }) {
     const nextTarget = nextDrawDateFrom(draws);
     console.log(`[Generate] next draw: ${nextTarget}`);
 
-    let baselineWeights = null;
-    let evolutionDate = null;
-    try {
-      const { data, error } = await supabase
-        .from("weight_version_history")
-        .select("weights, created_at")
-        .eq("adopted", true)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (!error && Array.isArray(data?.[0]?.weights) && data[0].weights.length > 0) {
-        baselineWeights = data[0].weights;
-        evolutionDate = data[0].created_at;
-      }
-    } catch {}
-    if (!baselineWeights) baselineWeights = deriveWeights(runBacktest(draws));
+    const equalBaseWeights = STRATEGIES.map((s) => ({ strategy: s.id, weight: 1 / STRATEGIES.length }));
 
-        let learningStateRows = [];
+    let stateRows = [];
     let learningDebug = "not attempted";
     try {
       const { data, error } = await supabase
-        .from("strategy_learning_state")
-        .select("strategy_id, evaluated_count, long_term_mean_brier, recent_briers, last_target_draw_date, last_brier, model_version, updated_at");
+        .from("strategy_position_learning_state")
+        .select("strategy_id, prediction_type, digit_position, evaluated_count, long_term_mean_brier, recent_briers, last_target_draw_date, last_brier, model_version, updated_at");
       if (error) {
         learningDebug = `fetch error: ${error.message}`;
       } else if (!data || data.length === 0) {
-        learningDebug = "strategy_learning_state has no rows yet";
+        learningDebug = "strategy_position_learning_state has no rows yet";
       } else {
-        learningStateRows = data;
-        learningDebug = `ok: ${data.length} strategies`;
+        stateRows = data;
+        learningDebug = `ok: ${data.length} states`;
       }
     } catch (err) {
       learningDebug = `exception: ${err.message}`;
     }
 
-    const learningStateMap = new Map(learningStateRows.map((row) => [row.strategy_id, stateRowToState(row)]));
-    const weights = deployWeightsFromState(baselineWeights, learningStateMap);
-    const weightsChanged = weights.filter((w) => {
-      const base = baselineWeights.find((b) => b.strategy === w.strategy)?.weight ?? 1;
-      return Math.abs(w.weight - base) > 0.0005;
-    }).length;
-    const validDates = learningStateRows.map((r) => r.last_target_draw_date).filter(Boolean);
+    const stateByKey = new Map(stateRows.map((row) => [positionKey(row.strategy_id, row.prediction_type, row.digit_position), positionStateRowToState(row)]));
+    const weightsByPosition = {};
+    for (const [type, len] of Object.entries(PREDICTION_TYPE_POSITIONS)) {
+      weightsByPosition[type] = [];
+      for (let pos = 0; pos < len; pos++) weightsByPosition[type].push(deployPositionWeightsFromState(equalBaseWeights, stateByKey, type, pos));
+    }
+    const validDates = stateRows.map((r) => r.last_target_draw_date).filter(Boolean);
     const learningThrough = validDates.length ? validDates.reduce((a, b) => (b > a ? b : a)) : null;
-    const learningSampleSize = learningStateRows.length ? Math.max(...learningStateRows.map((r) => r.evaluated_count || 0)) : 0;
+    const statesEvaluated = stateRows.filter((r) => (r.evaluated_count || 0) > 0).length;
+    const learningSampleSize = stateRows.length ? Math.max(...stateRows.map((r) => r.evaluated_count || 0)) : 0;
 
-    console.log(`[Generate] baseline: ${evolutionDate ? `evolution-engine (${evolutionDate})` : "backtest fallback"}`);
-    console.log(`[Generate] learning state: ${learningDebug}`);
-    console.log(`[Generate] learning through: ${learningThrough || "n/a"}, max evaluated: ${learningSampleSize}`);
-    console.log(`[Generate] weights: ${weights.map((w) => `${w.strategy}=${w.weight.toFixed(3)}`).join(", ")}`);
-
+    console.log(`[Generate] position learning state: ${learningDebug}`);
+    console.log(`[Generate] learning through: ${learningThrough || "n/a"}, max evaluated: ${learningSampleSize}, states evaluated: ${statesEvaluated}/154`);
 
     await new Promise((r) => setTimeout(r, 600));
-    const result = buildCandidates(draws, weights, 3);
+    const result = buildCandidatesWithPositionWeights(draws, weightsByPosition, 3);
     setCandidates(result);
-      setLearningInfo({ evolutionDate, learningThrough, sampleSize: learningSampleSize, learningDebug, weightsChanged });
+    setLearningInfo({ learningThrough, sampleSize: learningSampleSize, statesEvaluated, learningDebug });
     setLoading(false);
-        onGenerated(result, nextTarget);
-    fetch("/api/predictions", {
+    onGenerated(result, nextTarget);
+    fetch("/api/position-predictions", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetDrawDate: nextTarget, candidates: result }),
     }).catch(() => {});
     requestAnimationFrame(() => setRevealed(true));
   }
+
   const top = candidates?.[0];
 
   return (
