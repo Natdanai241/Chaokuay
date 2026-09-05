@@ -69,11 +69,34 @@ export default function PositionMonitorView() {
     return () => { cancelled = true; };
   }, []);
 
-  const stateByKey = useMemo(() => {
+    const stateByKey = useMemo(() => {
     const m = new Map();
     for (const row of state) m.set(positionKey(row.strategy_id, row.prediction_type, row.digit_position), positionStateRowToState(row));
     return m;
   }, [state]);
+
+  // Risk 1: run-backtest.js (source='position-pipeline') writes to
+  // position_predictions, but nothing read it back -- "Generate Prediction"
+  // computes its own separate live result (source='user-generated'). Reads
+  // the latest target_draw_date's 3 ranked rows for the real production output.
+  const [latestPrediction, setLatestPrediction] = useState([]);
+  const [predictionLoading, setPredictionLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("position_predictions")
+      .select("target_draw_date, rank, first_prize, front3, back3, back2, agreement_score, statistical_score, generated_at")
+      .eq("source", "position-pipeline")
+      .order("target_draw_date", { ascending: false })
+      .order("rank", { ascending: true })
+      .limit(3)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) setLatestPrediction(data);
+        setPredictionLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const equalBaseWeights = useMemo(() => STRATEGIES.map((s) => ({ strategy: s.id, weight: 1 / STRATEGIES.length })), []);
 
@@ -125,8 +148,40 @@ export default function PositionMonitorView() {
 
       <Card>
         <CardHeader>
+                  </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center" style={{ gap: 8 }}><Target size={16} color={COLORS.gold} /> คำทำนายล่าสุดจากไปป์ไลน์อัตโนมัติ (position-pipeline)</CardTitle>
+          <CardDescription>บันทึกจริงจาก run-backtest.js ครั้งล่าสุด — แยกจากปุ่ม "สร้างคำทำนาย" (user-generated) โดยสิ้นเชิง</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {predictionLoading ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>กำลังโหลด...</p>
+          ) : latestPrediction.length === 0 ? (
+            <p style={{ fontSize: "0.8rem", color: "var(--mist)" }}>ยังไม่มีคำทำนายจากไปป์ไลน์อัตโนมัติ</p>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 8 }}>
+              <p style={{ fontSize: "0.72rem", color: "var(--mist)" }}>
+                งวดเป้าหมาย {latestPrediction[0].target_draw_date} · สร้างเมื่อ {new Date(latestPrediction[0].generated_at).toLocaleString("th-TH")}
+              </p>
+              {latestPrediction.map((p) => (
+                <div key={p.rank} className="flex items-center justify-between" style={{ fontSize: "0.8rem", padding: "6px 10px", borderRadius: 8, background: "rgba(255,255,255,0.03)" }}>
+                  <span style={{ color: "var(--mist)" }}>อันดับ {p.rank}</span>
+                  <span className="ck-numeral" style={{ color: "var(--parchment)" }}>{p.first_prize} · {p.front3.join(",")} · {p.back3.join(",")} · {p.back2}</span>
+                  <Badge tone="gold">{p.agreement_score}%</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="flex items-center" style={{ gap: 8 }}><Target size={16} color={COLORS.gold} /> เทียบ A / B / C: อัตราตรงหลัก</CardTitle>
-          <CardDescription>อัตราที่หลักที่ทำนาย (argmax) ตรงกับหลักจริง เฉลี่ยทุกตำแหน่งในแต่ละประเภท จากการวอล์กฟอร์เวิร์ดล่าสุด</CardDescription>
+          <CardDescription>อัตราที่หลักที่ทำนาย (argmax) ตรงกับหลักจริง เฉลี่ยทุกตำแหน่งในแต่ละประเภท จากการวอล์กฟอร์เวิร์ดล่าสุด (11 กลยุทธ์เดี่ยว/D ดูแยกได้จาก position_walkforward_summary โดยตรง — ไม่รวมในกราฟนี้เพื่อไม่ให้แน่นเกินไป)</CardDescription>
         </CardHeader>
         <CardContent>
           {summaryLoading ? (
