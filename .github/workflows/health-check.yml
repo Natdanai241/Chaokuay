@@ -8,6 +8,13 @@ on:
     types: [completed]
   workflow_dispatch: {}
 
+permissions:
+  contents: write   # needed to push the monthly HEALTH-LOG.md entry
+
+concurrency:
+  group: chaokuay-health-check
+  cancel-in-progress: false
+
 jobs:
   health-check:
     runs-on: ubuntu-latest
@@ -16,9 +23,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22   # Node 20 (used elsewhere here) hit EOL 2026-04-30 — queued item below
+          node-version: 22   # Node 20 (used elsewhere here) hit EOL 2026-04-30 — queued item
       - run: node scripts/health-check.js
         env:
           SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           TRIGGERING_IMPORT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      - name: Commit monthly status log if updated
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain HEALTH-LOG.md 2>/dev/null)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add HEALTH-LOG.md
+            git commit -m "chore: monthly health log entry"
+            git push || echo "Push failed (possible concurrent run) -- will retry next trigger."
+          else
+            echo "No HEALTH-LOG.md changes to commit."
+          fi
