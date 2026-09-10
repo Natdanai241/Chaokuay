@@ -1,0 +1,24 @@
+name: Production health check
+
+on:
+  schedule:
+    - cron: "0 1 * * *"   # daily 08:00 Bangkok — health + Supabase anti-pause activity
+  workflow_run:
+    workflows: ["Import lottery draw"]
+    types: [completed]
+  workflow_dispatch: {}
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22   # Node 20 (used elsewhere here) hit EOL 2026-04-30 — queued item below
+      - run: node scripts/health-check.js
+        env:
+          SUPABASE_URL: https://aaphdwailaktncopxnrp.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TRIGGERING_IMPORT_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
