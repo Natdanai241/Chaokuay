@@ -1,7 +1,10 @@
-// Read-only production health check. Never writes to draws, learning
-// state, predictions, position_predictions, or weights, and never
-// triggers learning/prediction generation — it only inspects Supabase
-// and reports. Exit 0 = normal. Exit 1 = needs a look — GitHub's own
+import { readFileSync, existsSync, appendFileSync, writeFileSync } from "node:fs";
+
+// Read-only against Supabase — never writes draws, learning state,
+// predictions, position_predictions, or weights, and never triggers
+// learning/prediction generation. The one exception is HEALTH-LOG.md
+// below: a real, once-a-month status line, separate from production
+// data. Exit 0 = normal. Exit 1 = needs a look — GitHub's own
 // failed-run notification is the alert; no separate channel added.
 //
 // Deliberately independent of lib/models.js and lib/learning.js: a
@@ -31,7 +34,6 @@ async function getJSON(path) {
   try { return JSON.parse(text); } catch { throw new Error(`Non-JSON response: ${text.slice(0, 300)}`); }
 }
 
-// Same rule as mostRecentDrawDate() in scripts/import-draw.js.
 function expectedDrawDate(now) {
   const bkk = new Date(now.getTime() + 7 * 60 * 60 * 1000);
   const year = bkk.getUTCFullYear();
@@ -39,7 +41,6 @@ function expectedDrawDate(now) {
   const day = bkk.getUTCDate() >= 16 ? 16 : 1;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
-// Same rule as nextDrawDateFrom() in lib/models.js.
 function nextExpected(drawDateStr) {
   const d = new Date(drawDateStr + "T00:00:00Z");
   if (d.getUTCDate() === 1) d.setUTCDate(16);
@@ -59,6 +60,7 @@ async function main() {
     info(`Triggered by Import lottery draw completion (conclusion: ${process.env.TRIGGERING_IMPORT_CONCLUSION}).`);
   }
   const now = new Date();
+  let positionStateSummary = `0/${EXPECTED_STATE_COUNT}`;
 
   let draws;
   try {
@@ -108,6 +110,7 @@ async function main() {
       else if (row.digit_position < 0 || row.digit_position >= POSITIONS_PER_TYPE[row.prediction_type]) badPos++;
     }
     const distinctStrategies = new Set(posState.map((r) => r.strategy_id)).size;
+    positionStateSummary = `${seen.size}/${EXPECTED_STATE_COUNT}`;
     info(`Position-state rows: ${posState.length}, distinct keys: ${seen.size}, distinct strategies: ${distinctStrategies} (expected ${EXPECTED_STATE_COUNT} / ${STRATEGY_COUNT}).`);
     if (seen.size !== EXPECTED_STATE_COUNT) warn(`Position-state key count is ${seen.size}, expected ${EXPECTED_STATE_COUNT}.`);
     if (distinctStrategies !== STRATEGY_COUNT) warn(`${distinctStrategies} distinct strategy_id(s), expected ${STRATEGY_COUNT}.`);
@@ -163,6 +166,29 @@ async function main() {
         ? `No position-pipeline prediction for expected target ${targetDate} — most recent on file targets ${mostRecent} instead.`
         : `No position-pipeline prediction found for expected target ${targetDate}, and none exist at all.`);
     }
+  }
+
+  // Real, once-a-month status line. Side effect: the commit resets
+  // GitHub's 60-day scheduled-workflow inactivity clock (a workflow
+  // run alone does not).
+  const LOG_PATH = "HEALTH-LOG.md";
+  const thisMonth = now.toISOString().slice(0, 7);
+  let alreadyLogged = false;
+  if (existsSync(LOG_PATH)) {
+    const content = readFileSync(LOG_PATH, "utf8");
+    const lastEntry = [...content.matchAll(/^- (\d{4}-\d{2})-\d{2}:/gm)].pop();
+    alreadyLogged = lastEntry?.[1] === thisMonth;
+  }
+  if (alreadyLogged) {
+    info(`HEALTH-LOG.md already has a ${thisMonth} entry; skipping.`);
+  } else {
+    const line = `- ${now.toISOString().slice(0, 10)}: draw=${latestDraw}, position-state=${positionStateSummary}, status=${failed ? "ATTENTION" : "NORMAL"}\n`;
+    if (!existsSync(LOG_PATH)) {
+      writeFileSync(LOG_PATH, `# Chaokuay health log\n\nOne entry per month from the production health check.\n\n${line}`);
+    } else {
+      appendFileSync(LOG_PATH, line);
+    }
+    info(`Wrote ${thisMonth} entry to HEALTH-LOG.md.`);
   }
 
   console.log(failed ? "\n=== HEALTH CHECK: ATTENTION NEEDED (see WARN/FAIL above) ===" : "\n=== HEALTH CHECK: ALL NORMAL ===");
