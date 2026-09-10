@@ -10,7 +10,8 @@ on:
         default: false
 
 concurrency:
-  group: chaokuay-position-learning-state
+  group: chaokuay-learning-state
+
   cancel-in-progress: false
 
 jobs:
