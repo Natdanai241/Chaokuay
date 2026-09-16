@@ -15,13 +15,26 @@ async function fetchGloWithRetry(body, attempts = 3) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch("https://www.glo.or.th/api/checking/getLotteryResult", {
+      const res = await fetch("https://www.glo.or.th/api/checking/getLotteryResult", 
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+          "Origin": "https://www.glo.or.th",
+          "Referer": "https://www.glo.or.th/",
+        },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`GLO fetch failed: ${res.status} ${await res.text()}`);
-      return res.json();
+      const text = await res.text();
+      if (!res.ok) throw new Error(`GLO fetch failed: ${res.status} ${text.slice(0, 300)}`);
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(`GLO non-JSON response (status ${res.status}, content-type ${res.headers.get("content-type")}): ${text.slice(0, 300)}`);
+      }
+
     } catch (err) {
       lastErr = err;
       console.log(`[import-draw] Attempt ${i + 1}/${attempts} failed: ${err.message}`);
