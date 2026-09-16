@@ -15,7 +15,7 @@ async function fetchGloWithRetry(body, attempts = 3) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch("https://www.glo.or.th/api/checking/getLotteryResult", 
+    const res = await fetch("https://www.glo.or.th/api/checking/getLotteryResult", { 
         method: "POST",
         headers: {
           "Content-Type": "application/json",
